@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/bin/pip install *)",
+      "Read(//usr/local/bin/**)",
+      "Read(//opt/homebrew/bin/**)",
+      "Bash(.venv/bin/docstore --help)",
+      "Bash(.venv/bin/pytest tests/ -v)",
+      "Bash(.venv/bin/pytest tests/ -q)",
+      "Bash(pkill -f openclaw)",
+      "Bash(echo \"Exit code: $?\")"
+    ]
+  }
+}
