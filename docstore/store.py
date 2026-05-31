@@ -135,23 +135,27 @@ class DocStore:
     # ── Stats ──────────────────────────────────────────────────────────────
 
     def stats(self) -> StoreStats:
+        """
+        Lifetime view of the cache. We report the LLM work *absorbed* into the cache
+        (tokens_cached = sum of tokens_used across persisted entries). We don't track
+        cache-hit counts, so "tokens saved per query" is reported per-run by the
+        benchmark, not here.
+        """
         entries = list(self.root.glob("*.json"))
-        total_tokens_used = 0
-        total_tokens_saved = 0
+        total_tokens_cached = 0
         schema_counts: dict[str, int] = {}
 
         for path in entries:
             with open(path) as f:
                 data = json.load(f)
-            total_tokens_used  += data.get("tokens_used", 0)
-            total_tokens_saved += data.get("tokens_saved", 0)
+            total_tokens_cached += data.get("tokens_used", 0)
             sname = data.get("schema_name", "unknown")
             schema_counts[sname] = schema_counts.get(sname, 0) + 1
 
+        # Haiku 4.5 blended estimate — see scripts/benchmark.py for derivation.
         return StoreStats(
             total_entries=len(entries),
             schema_counts=schema_counts,
-            total_tokens_used=total_tokens_used,
-            total_tokens_saved=total_tokens_saved,
-            estimated_cost_saved_usd=round(total_tokens_saved / 1_000_000 * 0.25, 4),
+            total_tokens_cached=total_tokens_cached,
+            estimated_cost_to_recompute_usd=round(total_tokens_cached / 1_000_000 * 1.00, 4),
         )

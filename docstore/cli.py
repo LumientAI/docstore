@@ -244,10 +244,9 @@ def stats(
     s = store.stats()
 
     rprint(f"\n[bold]docstore stats[/bold] ({store_dir})\n")
-    rprint(f"  Total entries      : {s['total_entries']}")
-    rprint(f"  Tokens consumed    : {s['total_tokens_used']:,}")
-    rprint(f"  Tokens saved       : {s['total_tokens_saved']:,}")
-    rprint(f"  Estimated $ saved  : ${s['estimated_cost_saved_usd']:.4f}")
+    rprint(f"  Total entries           : {s['total_entries']}")
+    rprint(f"  Tokens absorbed by cache: {s['total_tokens_cached']:,}")
+    rprint(f"  Cost to re-extract all  : ${s['estimated_cost_to_recompute_usd']:.4f}")
     if s["schema_counts"]:
         rprint("\n  [bold]By schema:[/bold]")
         for name, count in s["schema_counts"].items():

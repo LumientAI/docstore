@@ -105,12 +105,10 @@ def run_pipeline(
     if client is None:
         client = anthropic.Anthropic()
 
-    # Cache hit
+    # Cache hit — tokens_saved reflects the LLM cost we avoided by not re-extracting
     cached = store.get(file_path, descriptor)
     if cached is not None:
-        raw_text = parser.parse(file_path)
-        tokens_saved = parser.estimate_tokens(raw_text)
-        return cached.model_copy(update={"tokens_saved": tokens_saved, "cache_hit": True})
+        return cached.model_copy(update={"tokens_saved": cached.tokens_used, "cache_hit": True})
 
     # Cache miss — run pipeline
     raw_text = parser.parse(file_path)
