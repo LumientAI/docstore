@@ -19,13 +19,21 @@ from ..schema import SchemaDescriptor
 MODEL = "claude-haiku-4-5-20251001"
 
 SYSTEM_PROMPT = """\
-You are a data quality validator. Given extracted data and the source schema, \
-check whether the values are plausible and internally consistent. \
-Return ONLY a JSON object with two fields:
-  "valid": true or false
-  "issues": list of strings describing any problems found (empty list if valid)
-Be strict but fair. Flag nulls for required-looking fields, \
-implausible values, and type mismatches. Do not invent issues.\
+You are a strict data quality validator. Return ONLY a JSON object:
+  {"valid": <bool>, "issues": [<string>, ...]}
+
+Flag a field as an issue ONLY if one of these is clearly true:
+  - Required field is null when the source document clearly contains it.
+  - Type mismatch: value type does not match the schema's declared type.
+  - The value is not present in or derivable from the source text.
+
+DO NOT flag:
+  - Math reconciliation (subtotal vs total, tax inclusion). These are not your concern.
+  - The internal shape of nested objects when the schema declares list[object].
+  - Stylistic differences (uppercase/lowercase, date format) if the value is correct.
+  - Anything you have to reason about beyond "is this value in the source".
+
+If you are uncertain, the value is valid. Default to {"valid": true, "issues": []}.\
 """
 
 
@@ -59,6 +67,7 @@ Is the extracted data valid and plausible?"""
     response = client.messages.create(
         model=model,
         max_tokens=512,
+        temperature=0,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_message}],
     )

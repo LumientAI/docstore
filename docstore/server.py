@@ -33,7 +33,17 @@ MODEL = os.environ.get("DOCSTORE_MODEL", "claude-haiku-4-5-20251001")
 
 server = Server("docstore")
 store = DocStore(root=Path(STORE_DIR))
-client = anthropic.Anthropic()
+
+# Lazy-init the Anthropic client so importing this module doesn't require an
+# API key — only the tool handlers that actually make LLM calls do.
+_client: anthropic.Anthropic | None = None
+
+
+def _get_client() -> anthropic.Anthropic:
+    global _client
+    if _client is None:
+        _client = anthropic.Anthropic()
+    return _client
 
 
 @server.list_tools()
@@ -157,7 +167,7 @@ async def _handle_extract(args: dict) -> list[TextContent]:
                      "Please provide 'fields' or 'schema_name'."
             )]
 
-    result = orchestrator.run_pipeline(file_path, descriptor, store, client, MODEL)
+    result = orchestrator.run_pipeline(file_path, descriptor, store, _get_client(), MODEL)
     return [TextContent(type="text", text=json.dumps({
         "data": result.data,
         "valid": result.valid,
@@ -217,7 +227,7 @@ async def _handle_diff(args: dict) -> list[TextContent]:
         return [TextContent(type="text", text="Could not retrieve stored result.")]
 
     raw_text = parser_agent.parse(file_path)
-    current_data, _ = extractor_agent.extract(raw_text, descriptor, client, MODEL)
+    current_data, _ = extractor_agent.extract(raw_text, descriptor, _get_client(), MODEL)
     current_hash = store.file_hash(file_path)
 
     result = differ_agent.diff(
@@ -227,7 +237,7 @@ async def _handle_diff(args: dict) -> list[TextContent]:
         file_path=str(file_path),
         previous_hash=stored.file_hash,
         current_hash=current_hash,
-        client=client,
+        client=_get_client(),
         model=MODEL,
     )
 

@@ -197,6 +197,9 @@ def main() -> None:
     args = ap.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
+    for stale in args.out_dir.glob("invoice_*.txt"):
+        stale.unlink()
+
     master = random.Random(args.seed)
     seeds = [master.randint(0, 10_000_000) for _ in range(args.count)]
 
@@ -207,7 +210,7 @@ def main() -> None:
         if not meta["paid"]:
             unpaid += 1
         currencies[meta["currency"]] = currencies.get(meta["currency"], 0) + 1
-        path = args.out_dir / f"{i:03d}_{slugify(meta['vendor'])}_{meta['invoice_no']}.txt"
+        path = args.out_dir / f"invoice_{i:04d}.txt"
         path.write_text(text, encoding="utf-8")
 
     print(f"Generated {args.count} invoices in {args.out_dir}/")

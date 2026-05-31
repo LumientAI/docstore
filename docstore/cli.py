@@ -7,6 +7,7 @@ Commands:
   diff      Compare current file against stored version
   schemas   List all schemas in the store
   stats     Show cache stats and token savings
+  clean     Delete cached extraction results
   shell     Interactive schema elicitation shell
 """
 
@@ -47,6 +48,9 @@ def extract(
     path: Path = typer.Argument(..., help="File or directory to process"),
     schema: Optional[str] = typer.Option(None, "--schema", "-s", help="Schema name from store"),
     ask: bool = typer.Option(False, "--ask", help="Describe fields interactively"),
+    validate: bool = typer.Option(False, "--validate",
+        help="Run a second LLM call per file to validate extracted data. "
+             "Doubles cold-extract cost; off by default."),
     store_dir: str = typer.Option(".docstore", "--store", help="Store directory"),
     model: str = typer.Option("claude-haiku-4-5-20251001", "--model"),
 ):
@@ -60,9 +64,11 @@ def extract(
 
     if path.is_dir():
         rprint(f"[gold1]Scanning[/gold1] {path} ...")
-        results = orchestrator.run_directory(path, descriptor, store, client, model)
+        results = orchestrator.run_directory(path, descriptor, store, client, model,
+                                             validate=validate)
     else:
-        results = [orchestrator.run_pipeline(path, descriptor, store, client, model)]
+        results = [orchestrator.run_pipeline(path, descriptor, store, client, model,
+                                             validate=validate)]
 
     # Summary table
     table = Table(title="Extraction Results")
@@ -147,42 +153,35 @@ def diff(
     client = anthropic.Anthropic()
     store = _get_store(store_dir)
 
-    # Find existing stored entry
-    entries = store.list_entries_for_file(file_path)
-    matching = [e for e in entries if e[0] == schema]
-
-    if not matching:
+    # Find the previous extraction by file path (not by current file hash —
+    # the file may have changed, which is the whole point of diff).
+    stored = store.find_for_path(file_path, schema)
+    if stored is None:
         rprint(f"[red]No stored result found for '{schema}' on {file_path.name}[/red]")
         raise typer.Exit(1)
 
-    schema_name, version = matching[0]
-    descriptor = SchemaDescriptor(name=schema_name, fields={}, version=version)
-
-    # Get stored result
-    stored = store.get(file_path, descriptor)
-    if stored is None:
-        rprint("[red]Could not retrieve stored result.[/red]")
+    if not stored.schema_fields:
+        rprint(f"[red]Cached entry has no field metadata (predates field "
+               f"persistence). Re-extract this file first to migrate.[/red]")
         raise typer.Exit(1)
 
-    # Run fresh extraction
-    rprint(f"[gold1]Re-extracting[/gold1] {file_path.name} ...")
-
-    # Need full descriptor — load from stored metadata
-    full_descriptor = SchemaDescriptor(
+    descriptor = SchemaDescriptor(
         name=stored.schema_name,
-        fields={},  # fields not stored in result — re-elicit or pass --ask
+        fields=stored.schema_fields,
         version=stored.schema_version,
     )
 
+    rprint(f"[gold1]Re-extracting[/gold1] {file_path.name} ...")
+
     from .agents import parser as parser_agent, extractor as extractor_agent
     raw_text = parser_agent.parse(file_path)
-    current_data, _ = extractor_agent.extract(raw_text, full_descriptor, client, model)
+    current_data, _ = extractor_agent.extract(raw_text, descriptor, client, model)
     current_hash = store.file_hash(file_path)
 
     result = differ_agent.diff(
         previous=stored.data,
         current=current_data,
-        descriptor=full_descriptor,
+        descriptor=descriptor,
         file_path=str(file_path),
         previous_hash=stored.file_hash,
         current_hash=current_hash,
@@ -255,6 +254,41 @@ def stats(
     rprint("")
 
 
+# ── clean ──────────────────────────────────────────────────────────────────
+
+@app.command()
+def clean(
+    store_dir: str = typer.Option(".docstore", "--store"),
+    schema: Optional[str] = typer.Option(None, "--schema", "-s",
+        help="Only delete entries for this schema. Omit to delete all."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
+):
+    """Delete cached extraction results. Use --schema to scope to one schema."""
+    store = _get_store(store_dir)
+
+    if schema:
+        pattern = f"*__{schema}__*.json"
+        target = f"all entries for schema '{schema}'"
+    else:
+        pattern = "*.json"
+        target = "ALL cached entries"
+
+    entries = list(store.root.glob(pattern))
+    if not entries:
+        rprint(f"[yellow]Nothing to delete in {store.root} (no entries matched).[/yellow]")
+        return
+
+    rprint(f"\n[bold]About to delete {len(entries)} entries[/bold] "
+           f"({target}) from {store.root}")
+    if not yes and not typer.confirm("Proceed?", default=False):
+        rprint("[yellow]Aborted.[/yellow]")
+        raise typer.Exit()
+
+    for p in entries:
+        p.unlink()
+    rprint(f"[green]Deleted {len(entries)} entries.[/green]")
+
+
 # ── shell ──────────────────────────────────────────────────────────────────
 
 @app.command()
@@ -317,14 +351,24 @@ def _resolve_descriptor(
     if ask:
         existing = store.list_schemas()
         user_input = typer.prompt("Describe the fields you want to extract")
-        return orchestrator.elicit_schema(user_input, existing, client)
+        return orchestrator.elicit_schema(user_input, existing, client, name=schema_name)
 
     if schema_name:
         existing = store.list_schemas()
         if schema_name in existing:
             versions = existing[schema_name]
-            # Return a descriptor shell — fields will be matched by name+version
-            return SchemaDescriptor(name=schema_name, fields={}, version=versions[-1])
+            version = versions[-1]
+            sample = next(store.root.glob(f"*__{schema_name}__{version}.json"), None)
+            if sample is not None:
+                with open(sample) as f:
+                    data = json.load(f)
+                fields = data.get("schema_fields", {})
+                if fields:
+                    return SchemaDescriptor(name=schema_name, fields=fields, version=version)
+            rprint(f"[yellow]Schema '{schema_name}' exists but predates field "
+                   f"persistence. Re-eliciting...[/yellow]")
+            user_input = typer.prompt("Describe the fields you want to extract")
+            return orchestrator.elicit_schema(user_input, existing, client, name=schema_name)
         rprint(f"[yellow]Schema '{schema_name}' not found in store. Eliciting...[/yellow]")
         user_input = typer.prompt("Describe the fields you want to extract")
         return orchestrator.elicit_schema(user_input, existing, client, name=schema_name)

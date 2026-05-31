@@ -101,12 +101,17 @@ def run_pipeline(
     store: DocStore,
     client: anthropic.Anthropic | None = None,
     model: str = MODEL,
+    validate: bool = False,
 ) -> ExtractionResult:
     """
     Run the full extraction pipeline for one file.
 
     Cache hit  → return stored result immediately, zero LLM calls.
-    Cache miss → parse → extract → validate → store → return.
+    Cache miss → parse → extract → (validate if requested) → store → return.
+
+    Validation is opt-in because it adds a second LLM call per file (doubling
+    cold-extract cost) and the validator is prone to plausible-sounding false
+    positives on clean data.
     """
     if client is None:
         client = anthropic.Anthropic()
@@ -118,17 +123,21 @@ def run_pipeline(
 
     # Cache miss — run pipeline
     raw_text = parser.parse(file_path)
-    estimated_raw_tokens = parser.estimate_tokens(raw_text)
-
     extracted, extract_tokens = extractor.extract(raw_text, descriptor, client, model)
-    valid, issues, validate_tokens = validator.validate(
-        extracted, descriptor, raw_text, client, model
-    )
+
+    validate_tokens = 0
+    if validate:
+        valid, issues, validate_tokens = validator.validate(
+            extracted, descriptor, raw_text, client, model
+        )
+    else:
+        valid, issues = True, []
 
     fhash = store.file_hash(file_path)
     result = ExtractionResult(
         schema_name=descriptor.name,
         schema_version=descriptor.version,
+        schema_fields=descriptor.fields,
         file_path=str(file_path),
         file_hash=fhash,
         data=extracted,
@@ -153,6 +162,7 @@ def run_directory(
     model: str = MODEL,
     glob: str = "*",
     progress: bool = True,
+    validate: bool = False,
 ) -> list[ExtractionResult]:
     """
     Run the pipeline over all supported files in a directory.
@@ -170,7 +180,7 @@ def run_directory(
     hits = misses = 0
     bar = tqdm(files, desc=descriptor.name, unit="doc", disable=not progress)
     for f in bar:
-        result = run_pipeline(f, descriptor, store, client, model)
+        result = run_pipeline(f, descriptor, store, client, model, validate=validate)
         results.append(result)
         if result.cache_hit:
             hits += 1

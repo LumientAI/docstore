@@ -137,7 +137,8 @@ def test_stats(tmp_store, sample_file, descriptor):
 
     s = tmp_store.stats()
     assert s["total_entries"] == 1
-    assert s["total_tokens_used"] == 450
+    assert s["total_tokens_cached"] == 450
+    assert s["estimated_cost_to_recompute_usd"] == round(450 / 1_000_000 * 1.00, 4)
     assert "invoice_schema" in s["schema_counts"]
 
 

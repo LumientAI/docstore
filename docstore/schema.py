@@ -98,6 +98,7 @@ class ExtractionResult(BaseModel):
 
     schema_name: str
     schema_version: str
+    schema_fields: dict[str, str] = {}
     file_path: str
     file_hash: str
     data: dict[str, Any]

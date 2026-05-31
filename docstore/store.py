@@ -117,6 +117,27 @@ class DocStore:
                 schemas.setdefault(schema_name, set()).add(version)
         return {k: sorted(v) for k, v in schemas.items()}
 
+    def find_for_path(
+        self, file_path: Path, schema_name: str
+    ) -> ExtractionResult | None:
+        """
+        Return the most recent cached extraction for a file path under a given
+        schema, regardless of the file's current content. Used by `diff` to find
+        the previous extraction *after* the file has changed (which would make
+        a file-hash lookup miss).
+        """
+        target = str(file_path)
+        candidates: list[dict] = []
+        for path in self.root.glob(f"*__{schema_name}__*.json"):
+            with open(path) as f:
+                data = json.load(f)
+            if data.get("file_path") == target:
+                candidates.append(data)
+        if not candidates:
+            return None
+        candidates.sort(key=lambda d: d.get("extracted_at", ""), reverse=True)
+        return ExtractionResult(**candidates[0])
+
     def list_entries_for_file(
         self, file_path: Path
     ) -> list[tuple[str, str]]:
