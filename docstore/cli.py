@@ -1,5 +1,5 @@
 """
-docstore CLI
+lumient-docstore CLI
 
 Commands:
   extract   Run extraction pipeline on a file or directory
@@ -26,9 +26,9 @@ from rich.table import Table
 
 load_dotenv()
 
-from .agents import orchestrator, differ as differ_agent
-from .schema import SchemaDescriptor
-from .store import DocStore
+from docstore.agents import orchestrator, differ as differ_agent
+from docstore.schema import SchemaDescriptor
+from docstore.store import DocStore
 
 app = typer.Typer(
     name="docstore",
@@ -166,8 +166,8 @@ def ask(
     """Ask a question in natural language. One LLM call compiles it to a
     filter; results come from cache with zero further LLM calls."""
     import anthropic
-    from .agents.compiler import compile_filter, filter_to_string
-    from .store import evaluate_filter
+    from docstore.agents.compiler import compile_filter, filter_to_string
+    from docstore.store import evaluate_filter
 
     client = anthropic.Anthropic()
     store = _get_store(store_dir)
@@ -259,7 +259,7 @@ def diff(
 
     rprint(f"[gold1]Re-extracting[/gold1] {file_path.name} ...")
 
-    from .agents import parser as parser_agent, extractor as extractor_agent
+    from docstore.agents import parser as parser_agent, extractor as extractor_agent
     raw_text = parser_agent.parse(file_path)
     current_data, _ = extractor_agent.extract(raw_text, descriptor, client, model)
     current_hash = store.file_hash(file_path)
