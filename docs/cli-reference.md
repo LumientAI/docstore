@@ -179,6 +179,31 @@ docstore clean --yes --store ./invoices/.docstore
 
 ---
 
+## `sync`
+
+Remove cache entries whose source file no longer exists on disk. Without `--yes`, only reports what would be removed.
+
+```bash
+docstore sync [OPTIONS]
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--yes`, `-y` | `false` | Delete stale entries. Without this flag, only reports them. |
+| `--store` | `.docstore` | Cache directory. |
+
+```bash
+# Dry run — see what's stale without deleting anything
+docstore sync --store ./invoices/.docstore
+
+# Remove stale entries
+docstore sync --store ./invoices/.docstore --yes
+```
+
+A stale entry is any cached result whose original source file path no longer exists on disk. This happens when documents are moved, renamed, or deleted after they were extracted. Stale entries are otherwise harmless (they don't affect correctness) but they inflate `stats` counts and appear in `query` results.
+
+---
+
 ## `shell`
 
 Interactive prompt that walks you through describing fields and runs the pipeline. Useful for ad-hoc exploration.

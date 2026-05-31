@@ -1,6 +1,9 @@
 # Secrets
 .env
 
+# macOS
+.DS_Store
+
 # docstore cache (per-corpus)
 .docstore/
 sample_invoices/
