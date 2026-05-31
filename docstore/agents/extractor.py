@@ -10,8 +10,7 @@ from __future__ import annotations
 import json
 import re
 
-import anthropic
-
+from ..llm import LLMClient, create_llm_client
 from ..schema import SchemaDescriptor
 
 
@@ -29,7 +28,7 @@ Never invent values that are not present in the document.\
 def extract(
     text: str,
     descriptor: SchemaDescriptor,
-    client: anthropic.Anthropic | None = None,
+    client: LLMClient | None = None,
     model: str = MODEL,
 ) -> tuple[dict, int]:
     """
@@ -39,7 +38,7 @@ def extract(
         (extracted_dict, tokens_used)
     """
     if client is None:
-        client = anthropic.Anthropic()
+        client = create_llm_client(model=model)
 
     user_message = f"""Document:
 ---
@@ -51,15 +50,14 @@ Extract the following fields and return a JSON object:
 
 Return ONLY the JSON object."""
 
-    response = client.messages.create(
-        model=model,
-        max_tokens=1024,
+    response = client.complete(
         system=SYSTEM_PROMPT,
+        max_tokens=1024,
         messages=[{"role": "user", "content": user_message}],
     )
 
-    raw = response.content[0].text.strip()
-    tokens_used = response.usage.input_tokens + response.usage.output_tokens
+    raw = response.text
+    tokens_used = response.tokens_used
 
     # Strip markdown code fences if present
     raw = re.sub(r"^```(?:json)?\s*", "", raw)

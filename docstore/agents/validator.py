@@ -11,8 +11,7 @@ import json
 import re
 from typing import Any
 
-import anthropic
-
+from ..llm import LLMClient, create_llm_client
 from ..schema import SchemaDescriptor
 
 
@@ -41,7 +40,7 @@ def validate(
     extracted: dict[str, Any],
     descriptor: SchemaDescriptor,
     original_text: str,
-    client: anthropic.Anthropic | None = None,
+    client: LLMClient | None = None,
     model: str = MODEL,
 ) -> tuple[bool, list[str], int]:
     """
@@ -51,7 +50,7 @@ def validate(
         (valid, issues, tokens_used)
     """
     if client is None:
-        client = anthropic.Anthropic()
+        client = create_llm_client(model=model)
 
     user_message = f"""Schema fields: {json.dumps(descriptor.fields, indent=2)}
 
@@ -64,16 +63,15 @@ Source document excerpt (first 2000 chars):
 
 Is the extracted data valid and plausible?"""
 
-    response = client.messages.create(
-        model=model,
+    response = client.complete(
+        system=SYSTEM_PROMPT,
         max_tokens=512,
         temperature=0,
-        system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_message}],
     )
 
-    raw = response.content[0].text.strip()
-    tokens_used = response.usage.input_tokens + response.usage.output_tokens
+    raw = response.text
+    tokens_used = response.tokens_used
 
     # Strip fenced code blocks
     raw = re.sub(r"^```(?:json)?\s*", "", raw)

@@ -66,7 +66,7 @@ pip install -e ".[dev]"
 ### Python API
 
 ```python
-from docstore import DocStore, ExtractionSchema
+from docstore import DocStore, ExtractionSchema, create_llm_client
 
 class InvoiceSchema(ExtractionSchema):
     vendor: str
@@ -76,11 +76,11 @@ class InvoiceSchema(ExtractionSchema):
     paid: bool
 
 from docstore.agents.orchestrator import run_directory
-import anthropic
 
 store = DocStore()
 descriptor = InvoiceSchema.to_descriptor()
-results = run_directory("./invoices", descriptor, store, anthropic.Anthropic())
+client = create_llm_client()  # defaults to Anthropic
+results = run_directory("./invoices", descriptor, store, client)
 
 # Query without any LLM calls
 unpaid = store.query("InvoiceSchema", lambda r: r.data.get("paid") is False)
@@ -94,6 +94,14 @@ docstore shell ./invoices/
 
 # Extract with a named schema
 docstore extract ./invoices/ --schema invoice_schema
+
+# Use OpenAI, Groq, or Gemini instead of the default Anthropic provider
+docstore extract ./invoices/ --schema invoice_schema --provider openai
+docstore extract ./invoices/ --schema invoice_schema --provider groq
+docstore extract ./invoices/ --schema invoice_schema --provider gemini
+
+# Override the default model for any provider
+docstore extract ./invoices/ --schema invoice_schema --provider gemini --model gemini-2.5-pro
 
 # Query stored results (no LLM)
 docstore query invoice_schema --filter "paid=false"
@@ -116,6 +124,7 @@ Add to your `claude_desktop_config.json`:
       "command": "docstore-server",
       "env": {
         "DOCSTORE_DIR": "/path/to/your/.docstore",
+        "DOCSTORE_PROVIDER": "anthropic",
         "ANTHROPIC_API_KEY": "your-key"
       }
     }
@@ -124,6 +133,11 @@ Add to your `claude_desktop_config.json`:
 ```
 
 Claude can then call `extract`, `query`, `diff`, and `stats` directly.
+
+Supported providers are `anthropic` (default), `openai`, `groq`, and `gemini`.
+Set `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, or `GEMINI_API_KEY`
+for the provider you choose. Each provider has a default model, and you can
+override it with `--model` on the CLI or `DOCSTORE_MODEL` for the MCP server.
 
 ---
 

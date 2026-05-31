@@ -14,7 +14,6 @@ import argparse
 import time
 from pathlib import Path
 
-import anthropic
 from dotenv import load_dotenv
 from rich import print as rprint
 from rich.table import Table
@@ -26,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 load_dotenv()
 
 from docstore.agents import orchestrator, parser as parser_agent
+from docstore.llm import DEFAULT_PROVIDER, ProviderName, create_llm_client, resolve_model
 from docstore.schema import SchemaDescriptor
 from docstore.store import DocStore
 
@@ -44,9 +44,16 @@ def baseline_tokens(directory: Path, glob: str = "*.txt") -> int:
     return total
 
 
-def run_benchmark(directory: Path, schema_name: str, runs: int = 3):
+def run_benchmark(
+    directory: Path,
+    schema_name: str,
+    runs: int = 3,
+    provider: ProviderName = DEFAULT_PROVIDER,
+    model: str | None = None,
+):
     store = DocStore(root=directory / ".docstore")
-    client = anthropic.Anthropic()
+    model = resolve_model(provider, model)
+    client = create_llm_client(provider, model)
 
     # Elicit schema interactively
     existing = store.list_schemas()
@@ -77,7 +84,7 @@ def run_benchmark(directory: Path, schema_name: str, runs: int = 3):
     total_saved = 0
     for run in range(1, runs + 1):
         t0 = time.time()
-        results = orchestrator.run_directory(directory, descriptor, store, client)
+        results = orchestrator.run_directory(directory, descriptor, store, client, model)
         elapsed = time.time() - t0
 
         hits   = sum(1 for r in results if r.cache_hit)
@@ -118,5 +125,11 @@ if __name__ == "__main__":
     parser.add_argument("directory", type=Path)
     parser.add_argument("--schema", default="benchmark_schema")
     parser.add_argument("--runs", type=int, default=3)
+    parser.add_argument(
+        "--provider",
+        choices=["anthropic", "openai", "groq", "gemini"],
+        default=DEFAULT_PROVIDER,
+    )
+    parser.add_argument("--model", default=None)
     args = parser.parse_args()
-    run_benchmark(args.directory, args.schema, args.runs)
+    run_benchmark(args.directory, args.schema, args.runs, args.provider, args.model)

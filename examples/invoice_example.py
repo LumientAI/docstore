@@ -32,7 +32,7 @@ class InvoiceSchema(ExtractionSchema):
 
 def main():
     from docstore.agents.orchestrator import run_directory
-    import anthropic
+    from docstore.llm import create_llm_client
 
     invoices_dir = Path("./sample_invoices")
     if not invoices_dir.exists():
@@ -40,7 +40,7 @@ def main():
         return
 
     store = DocStore(root=invoices_dir / ".docstore")
-    client = anthropic.Anthropic()
+    client = create_llm_client()
     descriptor = InvoiceSchema.to_descriptor()
 
     print(f"Schema: {descriptor.name} v{descriptor.version}")

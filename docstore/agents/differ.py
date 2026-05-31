@@ -10,8 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import anthropic
-
+from ..llm import LLMClient, create_llm_client
 from ..schema import DiffResult, SchemaDescriptor
 
 
@@ -34,14 +33,14 @@ def diff(
     file_path: str,
     previous_hash: str,
     current_hash: str,
-    client: anthropic.Anthropic | None = None,
+    client: LLMClient | None = None,
     model: str = MODEL,
 ) -> DiffResult:
     """
     Compare two extraction results and return a structured diff.
     """
     if client is None:
-        client = anthropic.Anthropic()
+        client = create_llm_client(model=model)
 
     # Fast path: exact match
     if previous == current:
@@ -74,16 +73,15 @@ Changed fields (detected): {changed_fields}
 
 Summarise the changes."""
 
-    response = client.messages.create(
-        model=model,
-        max_tokens=256,
+    response = client.complete(
         system=SYSTEM_PROMPT,
+        max_tokens=256,
         messages=[{"role": "user", "content": user_message}],
     )
 
     import re
     import json as _json
-    raw = response.content[0].text.strip()
+    raw = response.text
     raw = re.sub(r"^```(?:json)?\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
 

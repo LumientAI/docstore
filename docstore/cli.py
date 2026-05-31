@@ -26,6 +26,7 @@ from rich.table import Table
 load_dotenv()
 
 from .agents import orchestrator, differ as differ_agent
+from .llm import DEFAULT_PROVIDER, LLMClient, ProviderName, create_llm_client, resolve_model
 from .schema import SchemaDescriptor
 from .store import DocStore
 
@@ -53,6 +54,15 @@ def _resolve_store_for_path(path: Path, store_dir: str) -> str:
     return str(base / ".docstore")
 
 
+def _resolve_provider_model(provider: ProviderName, model: str | None = None) -> str:
+    return resolve_model(provider, model)
+
+
+def _create_llm(provider: ProviderName, model: str | None = None) -> tuple[LLMClient, str]:
+    resolved_model = _resolve_provider_model(provider, model)
+    return create_llm_client(provider, resolved_model), resolved_model
+
+
 # ── extract ────────────────────────────────────────────────────────────────
 
 @app.command()
@@ -66,11 +76,11 @@ def extract(
     store_dir: str = typer.Option(".docstore", "--store",
         help="Store directory. Defaults to <path>/.docstore so the cache "
              "lives with the corpus."),
-    model: str = typer.Option("claude-haiku-4-5-20251001", "--model"),
+    provider: ProviderName = typer.Option(DEFAULT_PROVIDER, "--provider"),
+    model: str | None = typer.Option(None, "--model"),
 ):
     """Extract structured data from a file or directory."""
-    import anthropic
-    client = anthropic.Anthropic()
+    client, model = _create_llm(provider, model)
     store = _get_store(_resolve_store_for_path(path, store_dir))
 
     # Resolve schema descriptor
@@ -160,11 +170,11 @@ def diff(
     schema: str = typer.Option(..., "--schema", "-s"),
     store_dir: str = typer.Option(".docstore", "--store",
         help="Store directory. Defaults to <file_path's parent>/.docstore."),
-    model: str = typer.Option("claude-haiku-4-5-20251001", "--model"),
+    provider: ProviderName = typer.Option(DEFAULT_PROVIDER, "--provider"),
+    model: str | None = typer.Option(None, "--model"),
 ):
     """Compare current file against its stored extraction."""
-    import anthropic
-    client = anthropic.Anthropic()
+    client, model = _create_llm(provider, model)
     store = _get_store(_resolve_store_for_path(file_path, store_dir))
 
     # Find the previous extraction by file path (not by current file hash —
@@ -310,11 +320,11 @@ def shell(
     path: Path = typer.Argument(..., help="File or directory to process"),
     store_dir: str = typer.Option(".docstore", "--store",
         help="Store directory. Defaults to <path>/.docstore."),
-    model: str = typer.Option("claude-haiku-4-5-20251001", "--model"),
+    provider: ProviderName = typer.Option(DEFAULT_PROVIDER, "--provider"),
+    model: str | None = typer.Option(None, "--model"),
 ):
     """Interactive shell — describe fields in plain language."""
-    import anthropic
-    client = anthropic.Anthropic()
+    client, model = _create_llm(provider, model)
     store = _get_store(_resolve_store_for_path(path, store_dir))
 
     existing = store.list_schemas()

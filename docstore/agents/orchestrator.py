@@ -15,9 +15,9 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-import anthropic
 from tqdm import tqdm
 
+from ..llm import LLMClient, create_llm_client
 from ..schema import ExtractionResult, SchemaDescriptor
 from ..store import DocStore
 from . import parser, extractor, validator
@@ -37,7 +37,7 @@ Return ONLY the JSON object. No prose, no markdown.\
 def elicit_schema(
     user_description: str,
     existing_schemas: dict[str, list[str]],
-    client: anthropic.Anthropic | None = None,
+    client: LLMClient | None = None,
     name: str | None = None,
 ) -> SchemaDescriptor:
     """
@@ -49,13 +49,12 @@ def elicit_schema(
     Presents existing schemas if any match, to encourage cache reuse.
     """
     if client is None:
-        client = anthropic.Anthropic()
+        client = create_llm_client()
 
-    response = client.messages.create(
-        model=MODEL,
+    response = client.complete(
+        system=NORMALISE_SYSTEM,
         max_tokens=512,
         temperature=0,
-        system=NORMALISE_SYSTEM,
         messages=[
             {
                 "role": "user",
@@ -64,7 +63,7 @@ def elicit_schema(
         ],
     )
 
-    raw = response.content[0].text.strip()
+    raw = response.text
     raw = re.sub(r"^```(?:json)?\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
     decoder = json.JSONDecoder()
@@ -79,17 +78,16 @@ def elicit_schema(
     return SchemaDescriptor(name=name, fields=fields)
 
 
-def _infer_schema_name(fields: dict[str, str], client: anthropic.Anthropic) -> str:
+def _infer_schema_name(fields: dict[str, str], client: LLMClient) -> str:
     """Ask the model to infer a short schema name from field names."""
     keys = list(fields.keys())
-    response = client.messages.create(
-        model=MODEL,
+    response = client.complete(
+        system="Return a short snake_case schema name (3 words max) based on these field names. Return ONLY the name.",
         max_tokens=32,
         temperature=0,
-        system="Return a short snake_case schema name (3 words max) based on these field names. Return ONLY the name.",
         messages=[{"role": "user", "content": str(keys)}],
     )
-    raw = response.content[0].text.strip().lower()
+    raw = response.text.lower()
     raw = re.sub(r"[^a-z0-9_]", "_", raw)
     return raw or "user_schema"
 
@@ -98,7 +96,7 @@ def run_pipeline(
     file_path: Path,
     descriptor: SchemaDescriptor,
     store: DocStore,
-    client: anthropic.Anthropic | None = None,
+    client: LLMClient | None = None,
     model: str = MODEL,
     validate: bool = False,
 ) -> ExtractionResult:
@@ -113,7 +111,8 @@ def run_pipeline(
     positives on clean data.
     """
     if client is None:
-        client = anthropic.Anthropic()
+        client = create_llm_client(model=model)
+    model = getattr(client, "model", model)
 
     # Cache hit — tokens_saved reflects the LLM cost we avoided by not re-extracting
     cached = store.get(file_path, descriptor)
@@ -157,7 +156,7 @@ def run_directory(
     directory: Path,
     descriptor: SchemaDescriptor,
     store: DocStore,
-    client: anthropic.Anthropic | None = None,
+    client: LLMClient | None = None,
     model: str = MODEL,
     glob: str = "*",
     progress: bool = True,
