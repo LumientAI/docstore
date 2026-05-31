@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools>=68", "setuptools-scm>=8", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lumient-docstore"
+dynamic = ["version"]
+description = "Persistent cache for LLM document extraction: extract once, query forever. CLI, Python API, and MCP server."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+keywords = ["llm", "anthropic", "claude", "documents", "extraction", "cache", "mcp", "rag"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "anthropic>=0.25.0",
+    "openai>=1.0",
+    "pydantic>=2.0",
+    "pypdf>=4.0",
+    "python-docx>=1.1",
+    "typer>=0.12",
+    "rich>=13.0",
+    "mcp>=1.0",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+    "tqdm>=4.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.4"]
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+]
+
+[project.urls]
+Homepage = "https://docstore.lumient.ai"
+Documentation = "https://docstore.lumient.ai"
+Repository = "https://github.com/LumientAI/docstore"
+Issues = "https://github.com/LumientAI/docstore/issues"
+Changelog = "https://github.com/LumientAI/docstore/blob/master/CHANGELOG.md"
+
+[project.scripts]
+docstore = "docstore.cli:app"
+docstore-server = "docstore.server:main"
+
+[tool.setuptools.packages.find]
+include = ["docstore*"]
+exclude = ["tests*", "examples*", "scripts*", "sample_invoices*"]
+
+[tool.setuptools_scm]
+fallback_version = "0.0.0+unknown"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint.per-file-ignores]
+"docstore/cli.py" = ["E402"]
+"docstore/server.py" = ["E402"]
+"examples/*.py" = ["E402"]
+"scripts/*.py" = ["E402"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
