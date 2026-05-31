@@ -26,6 +26,50 @@ class StoreStats(dict):
     pass
 
 
+def evaluate_filter(node: dict[str, Any], data: dict[str, Any]) -> bool:
+    """
+    Evaluate a filter AST (from `agents.compiler.compile_filter`) against a
+    single record's `data` dict. Returns True if the record matches.
+
+    Pure Python, no eval, no code execution. Unknown operators raise.
+    """
+    if "and" in node:
+        return all(evaluate_filter(child, data) for child in node["and"])
+    if "or" in node:
+        return any(evaluate_filter(child, data) for child in node["or"])
+    if "not" in node:
+        return not evaluate_filter(node["not"], data)
+    if "error" in node:
+        return False
+
+    field = node["field"]
+    op = node["op"]
+    actual = data.get(field)
+    value = node.get("value")
+
+    if op == "is_null":
+        return actual is None
+    if op == "=":
+        return actual == value
+    if op == "!=":
+        return actual != value
+    if op == "contains":
+        return value in actual if actual is not None else False
+    if op == "in":
+        return actual in (value or [])
+    if actual is None:
+        return False  # ordered comparisons on null → no match, never raise
+    if op == ">":
+        return actual > value
+    if op == "<":
+        return actual < value
+    if op == ">=":
+        return actual >= value
+    if op == "<=":
+        return actual <= value
+    raise ValueError(f"Unknown filter operator: {op!r}")
+
+
 class DocStore:
     def __init__(self, root: Path | str = DEFAULT_STORE_DIR) -> None:
         self.root = Path(root)

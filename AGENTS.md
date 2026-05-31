@@ -29,13 +29,15 @@ docstore/
                    ExtractionResult (persists schema_fields — see invariants)
   store.py         File-based cache. Key shape: {file_hash}__{schema}__{version}.json
                    find_for_path() looks up by stored file_path, not current hash
-  cli.py           Typer CLI: extract, query, diff, schemas, stats, clean, shell
+                   evaluate_filter() walks the AST produced by agents/compiler.py
+  cli.py           Typer CLI: extract, query, ask, diff, schemas, stats, clean, shell
   server.py        MCP server exposing extract, query, diff, stats
   agents/
     parser.py        file -> text (no LLM)
     extractor.py     text + schema -> JSON (1 LLM call)
     validator.py     extracted data -> {valid, issues} (1 LLM call, opt-in)
     differ.py        previous vs current -> changed_fields + summary
+    compiler.py      English question + schema fields -> filter AST (1 LLM call)
     orchestrator.py  coordinates the pipeline; elicits schemas from natural language
 ```
 
@@ -54,6 +56,11 @@ docstore/
   `<path>/.docstore`. The benchmark and Python example do the same. If you add a
   new command that takes a path, use `_resolve_store_for_path` so the convention
   stays consistent.
+- **Compiler must be anchored to the actual schema fields.** `compile_filter`
+  embeds the exact field names from the cached schema into the system prompt so
+  the LLM can't hallucinate column names. If you change the prompt, keep that
+  pin — otherwise `docstore ask` silently returns empty result sets when the
+  model invents fields that don't exist in the cache.
 
 ## Things that look wrong but are intentional
 
