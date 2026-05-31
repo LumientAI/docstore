@@ -40,7 +40,7 @@ def main():
         print(f"Create a directory at {invoices_dir} with some .txt or .pdf invoices.")
         return
 
-    store = DocStore()
+    store = DocStore(root=invoices_dir / ".docstore")
     client = anthropic.Anthropic()
     descriptor = InvoiceSchema.to_descriptor()
 
@@ -70,10 +70,9 @@ def main():
     # Stats
     s = store.stats()
     print(f"\nStats:")
-    print(f"  Documents : {s['total_entries']}")
-    print(f"  Tokens used  : {s['total_tokens_used']:,}")
-    print(f"  Tokens saved : {s['total_tokens_saved']:,}")
-    print(f"  Est. $ saved : ${s['estimated_cost_saved_usd']:.4f}")
+    print(f"  Documents              : {s['total_entries']}")
+    print(f"  Tokens absorbed by cache: {s['total_tokens_cached']:,}")
+    print(f"  Cost to re-extract all : ${s['estimated_cost_to_recompute_usd']:.4f}")
 
 
 if __name__ == "__main__":
