@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import random
 from datetime import date, timedelta
 from pathlib import Path
@@ -197,25 +198,43 @@ def main() -> None:
     args = ap.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    for stale in args.out_dir.glob("invoice_*.txt"):
-        stale.unlink()
-
-    master = random.Random(args.seed)
-    seeds = [master.randint(0, 10_000_000) for _ in range(args.count)]
+    records = generate_corpus(args.out_dir, args.count, args.seed)
 
     unpaid = 0
     currencies: dict[str, int] = {}
-    for i, seed in enumerate(tqdm(seeds, desc="generating", unit="invoice"), start=1):
-        text, meta = render_invoice(seed)
+    for record in records:
+        meta = record["data"]
         if not meta["paid"]:
             unpaid += 1
         currencies[meta["currency"]] = currencies.get(meta["currency"], 0) + 1
-        path = args.out_dir / f"invoice_{i:04d}.txt"
-        path.write_text(text, encoding="utf-8")
 
     print(f"Generated {args.count} invoices in {args.out_dir}/")
     print(f"  unpaid:     {unpaid} ({unpaid/args.count*100:.0f}%)")
     print(f"  currencies: {', '.join(f'{k}={v}' for k, v in sorted(currencies.items()))}")
+    print(f"  ground truth: {args.out_dir / 'ground_truth.jsonl'}")
+
+
+def generate_corpus(out_dir: Path, count: int = 30, seed: int = 42) -> list[dict]:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for stale in out_dir.glob("invoice_*.txt"):
+        stale.unlink()
+
+    master = random.Random(seed)
+    seeds = [master.randint(0, 10_000_000) for _ in range(count)]
+
+    records = []
+    for i, invoice_seed in enumerate(tqdm(seeds, desc="generating", unit="invoice"), start=1):
+        text, meta = render_invoice(invoice_seed)
+        filename = f"invoice_{i:04d}.txt"
+        path = out_dir / filename
+        path.write_text(text, encoding="utf-8")
+        records.append({"file": filename, "data": meta})
+
+    with open(out_dir / "ground_truth.jsonl", "w", encoding="utf-8") as f:
+        for record in records:
+            f.write(json.dumps(record, sort_keys=True) + "\n")
+
+    return records
 
 
 if __name__ == "__main__":

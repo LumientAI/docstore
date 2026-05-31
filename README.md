@@ -32,16 +32,20 @@ docstore treats structured extraction as a **cache over your unstructured data**
 
 ## Benchmark
 
-Over a corpus of 200 documents queried 3 times:
+docstore ships with a reproducible public cache benchmark. It generates a
+synthetic invoice corpus, writes `ground_truth.jsonl`, then measures:
 
-| Scenario | Baseline tokens | docstore tokens | Saving |
-|---|---|---|---|
-| First extraction | 180,000 | 180,000 | 0% |
-| Second query, no changes | 180,000 | 0 | 100% |
-| Monthly run, 12 new files | 180,000 | 10,800 | 94% |
-| Single question over corpus | 180,000 | ~500 | 99.7% |
+- `cold_extract`: empty cache, every document calls the LLM once
+- `warm_extract`: same corpus and schema, every document is served from cache
+- `cached_query`: query stored JSON locally, with no parser or LLM calls
 
-Run the benchmark yourself: `python scripts/benchmark.py ./your_documents --runs 3`
+```bash
+uv run python scripts/benchmark.py /tmp/docstore-benchmark --count 30
+uv run python scripts/benchmark.py /tmp/docstore-benchmark --count 30 --output json
+```
+
+Use `--provider` and `--model` to run it against a specific vendor. The
+benchmark is intended to show cache behavior, not provider quality.
 
 ---
 
