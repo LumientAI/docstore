@@ -4,6 +4,11 @@ Guidance for AI coding agents (and humans) working on this repo. Covers dev
 commands, the bits of architecture that aren't obvious from skimming, and the
 invariants that quietly break things if you violate them.
 
+See also:
+- [CONTRIBUTING.md](CONTRIBUTING.md) — workflow, setup, PR process, releasing.
+- [CHANGELOG.md](CHANGELOG.md) — what's changed (the *why* lives here; the
+  *how* lives in code).
+
 ## Dev commands
 
 ```bash
