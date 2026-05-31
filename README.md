@@ -98,6 +98,10 @@ docstore extract ./invoices/ --schema invoice_schema
 # Query stored results (no LLM)
 docstore query invoice_schema --filter "paid=false"
 
+# Ask in natural language — one LLM call compiles to a filter,
+# results come from cache with no per-document re-reads
+docstore ask "which unpaid invoices are over $5000?" --schema invoice_schema
+
 # Diff a changed file
 docstore diff ./invoices/acme_april.pdf --schema invoice_schema
 
@@ -130,15 +134,15 @@ Claude can then call `extract`, `query`, `diff`, and `stats` directly.
 ## How it works
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────────────┐
 │                         docstore pipeline                        │
 │                                                                  │
 │  document.pdf                                                    │
 │       │                                                          │
 │       ▼                                                          │
-│  ┌─────────┐     cache hit?  ──────────────────────────────┐    │
-│  │  Parser  │  ─────────────►  .docstore/{hash}.json        │    │
-│  └─────────┘     (no LLM)   ──────────────────────────────┘    │
+│  ┌─────────┐     cache hit?   ──────────────────────────────┐    │
+│  │  Parser │  ─────────────►  .docstore/{hash}.json         │    │
+│  └─────────┘     (no LLM)     ──────────────────────────────┘    │
 │       │                                                          │
 │       │ cache miss                                               │
 │       ▼                                                          │
@@ -153,7 +157,7 @@ Claude can then call `extract`, `query`, `diff`, and `stats` directly.
 │       │                                                          │
 │       ▼                                                          │
 │  .docstore/{file_hash}__{schema}__{version}.json                 │
-└─────────────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 **Cache key:** `sha256(file_bytes)` + `schema_name` + `sha256(schema_fields)`
