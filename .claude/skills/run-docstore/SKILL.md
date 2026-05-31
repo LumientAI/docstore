@@ -44,6 +44,17 @@ mcp__docstore__query(schema_name="vendor_invoice", filter="paid=false")
 # filter supports: field=value, field!=value
 ```
 
+## Sync
+
+Remove cache entries whose source file no longer exists on disk:
+
+```python
+mcp__docstore__sync()               # dry run — reports stale paths, deletes nothing
+mcp__docstore__sync(delete=True)    # removes stale entries
+```
+
+Run this if `query` returns results for files you know have been deleted.
+
 ## Gotchas
 
 **File paths must be absolute.** Relative paths return "File not found".
@@ -51,8 +62,6 @@ mcp__docstore__query(schema_name="vendor_invoice", filter="paid=false")
 **Schema naming is the cache namespace.** A different `schema_name` each time defeats caching entirely.
 
 **Changing `fields` busts the cache for all files.** Even with the same `schema_name`, a different set of fields produces a new schema version — every document is a cache miss. Read the cached field set from `query` first; if the fields you need are already there, reuse them exactly.
-
-**Stale entries for deleted files.** `query` returns results for files that no longer exist on disk. There's no warning. If a result's filename doesn't correspond to a real file, ignore it.
 
 **"Predates field persistence" error.** Old cache entries lack field metadata. Fix: always pass `fields` explicitly rather than relying on `schema_name` alone to hydrate the descriptor.
 

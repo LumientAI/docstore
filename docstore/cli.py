@@ -375,6 +375,33 @@ def clean(
     rprint(f"[green]Deleted {len(entries)} entries.[/green]")
 
 
+# ── sync ───────────────────────────────────────────────────────────────
+
+@app.command()
+def sync(
+    store_dir: str = typer.Option(".docstore", "--store"),
+    yes: bool = typer.Option(False, "--yes", "-y",
+        help="Delete stale entries. Without this flag, only reports them."),
+):
+    """Remove cache entries whose source file no longer exists on disk."""
+    store = _get_store(store_dir)
+    stale = store.sync(delete=yes)
+
+    if not stale:
+        rprint("[green]Store is in sync — no stale entries.[/green]")
+        return
+
+    if yes:
+        rprint(f"[green]Removed {len(stale)} stale entr{'y' if len(stale) == 1 else 'ies'}:[/green]")
+    else:
+        rprint(
+            f"[yellow]{len(stale)} stale entr{'y' if len(stale) == 1 else 'ies'} "
+            f"(source file missing). Run with --yes to remove:[/yellow]"
+        )
+    for fp in stale:
+        rprint(f"  [dim]{fp}[/dim]")
+
+
 # ── shell ──────────────────────────────────────────────────────────────────
 
 @app.command()

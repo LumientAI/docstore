@@ -100,6 +100,15 @@ docstore stats --store sample_invoices/.docstore
 docstore schemas --store sample_invoices/.docstore
 ```
 
+## Sync stale entries
+
+If you move or delete source files after extracting them, their cache entries become stale — they'll still appear in `query` results even though the files are gone. Remove them with:
+
+```bash
+docstore sync --store sample_invoices/.docstore        # dry run, reports stale paths
+docstore sync --store sample_invoices/.docstore --yes  # delete stale entries
+```
+
 ## Clean up
 
 Wipe the cache for one schema, or everything:

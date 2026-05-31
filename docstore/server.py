@@ -125,6 +125,22 @@ async def list_tools() -> list[Tool]:
             description="Return cache hit statistics and token savings for the store.",
             inputSchema={"type": "object", "properties": {}},
         ),
+        Tool(
+            name="sync",
+            description=(
+                "Find cache entries whose source file no longer exists on disk. "
+                "Returns the list of stale file paths. Pass delete=true to remove them."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "delete": {
+                        "type": "boolean",
+                        "description": "If true, delete the stale cache entries. Default false (dry run).",
+                    },
+                },
+            },
+        ),
     ]
 
 
@@ -138,6 +154,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return await _handle_diff(arguments)
     elif name == "stats":
         return await _handle_stats()
+    elif name == "sync":
+        return await _handle_sync(arguments)
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
@@ -274,6 +292,16 @@ async def _handle_diff(args: dict) -> list[TextContent]:
         "summary": result.summary,
         "previous": result.previous,
         "current": result.current,
+    }, indent=2))]
+
+
+async def _handle_sync(args: dict) -> list[TextContent]:
+    delete = args.get("delete", False)
+    stale = store.sync(delete=delete)
+    return [TextContent(type="text", text=json.dumps({
+        "stale_count": len(stale),
+        "deleted": delete,
+        "stale_paths": stale,
     }, indent=2))]
 
 

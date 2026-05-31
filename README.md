@@ -112,6 +112,10 @@ docstore ask "which unpaid invoices are over $5000?" --schema invoice_schema --s
 # Diff a changed file
 docstore diff ./invoices/acme_april.pdf --schema invoice_schema
 
+# Remove cache entries whose source file no longer exists
+docstore sync --store ./invoices/.docstore        # dry run
+docstore sync --store ./invoices/.docstore --yes  # delete stale entries
+
 # Wipe the cache (optional --schema X to scope)
 docstore clean --store ./invoices/.docstore --yes
 
