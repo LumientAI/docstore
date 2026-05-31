@@ -41,7 +41,12 @@ def _parse_pdf(file_path: Path) -> str:
     for i, page in enumerate(reader.pages):
         text = page.extract_text() or ""
         if text.strip():
-            pages.append(f"[Page {i+1}]\n{text.strip()}")
+            pages.append(f"[Page {i + 1}]\n{text.strip()}")
+    if not pages:
+        raise ValueError(
+            f"No extractable text found in PDF: {file_path}. "
+            "Scanned or image-only PDFs require OCR; OCR is not supported yet."
+        )
     return "\n\n".join(pages)
 
 

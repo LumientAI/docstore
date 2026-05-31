@@ -47,6 +47,9 @@ docstore --help            # CLI is on PATH
 - **Tests live in `tests/`.** Store-, schema-, and parser-layer tests don't
   call the LLM. Tests that require a live API key should be marked clearly
   (no convention yet — propose one if you need it).
+- **Keep fixtures synthetic.** Do not commit private invoices, travel receipts,
+  contracts, or other real customer/business documents. Parser fixtures should
+  be generated or minimal non-sensitive files.
 - **Match existing patterns**: new CLI commands take `--store` and use the
   `_resolve_store_for_path` helper if they accept a path argument.
 - **Don't add backwards-compat shims** for changes within this repo. If you
@@ -59,11 +62,11 @@ Open an issue at https://github.com/LumientAI/docstore/issues with:
 
 - The command you ran and the full output (including the traceback if any).
 - Your Python version (`python --version`) and OS.
-- A minimal reproducer if you can — even a tiny `.txt` invoice that triggers
-  the bug helps.
+- A minimal synthetic reproducer if you can — even a tiny `.txt` or
+  selectable-text `.pdf` invoice that triggers the bug helps.
 
 For bugs in the extracted data quality (the LLM got a field wrong), include
-the source document and the cached JSON from `.docstore/`.
+a redacted or synthetic source document and the cached JSON from `.docstore/`.
 
 ## Releasing
 

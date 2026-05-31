@@ -197,6 +197,9 @@ The orchestrator normalises your description into a canonical schema and shows i
 
 PDF, DOCX, TXT, MD, CSV, HTML, JSON
 
+PDF support covers documents with embedded/selectable text. Scanned or
+image-only PDFs need OCR, which docstore does not support yet.
+
 ---
 
 ## Limitations vs Lumient
