@@ -13,7 +13,7 @@ from typing import Any
 
 import anthropic
 
-from ..schema import SchemaDescriptor
+from docstore.schema import SchemaDescriptor
 
 
 MODEL = "claude-haiku-4-5-20251001"

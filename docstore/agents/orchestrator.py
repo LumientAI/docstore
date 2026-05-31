@@ -18,9 +18,9 @@ from pathlib import Path
 import anthropic
 from tqdm import tqdm
 
-from ..schema import ExtractionResult, SchemaDescriptor
-from ..store import DocStore
-from . import parser, extractor, validator
+from docstore.schema import ExtractionResult, SchemaDescriptor
+from docstore.store import DocStore
+from docstore.agents import parser, extractor, validator
 
 
 MODEL = "claude-haiku-4-5-20251001"

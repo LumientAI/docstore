@@ -7,7 +7,7 @@ Install, configure, and run your first cached extraction. ~3 minutes.
 === "pip"
 
     ```bash
-    pip install docstore
+    pip install lumient-docstore
     ```
 
 === "From source"

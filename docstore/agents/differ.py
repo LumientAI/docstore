@@ -12,7 +12,7 @@ from typing import Any
 
 import anthropic
 
-from ..schema import DiffResult, SchemaDescriptor
+from docstore.schema import DiffResult, SchemaDescriptor
 
 
 MODEL = "claude-haiku-4-5-20251001"

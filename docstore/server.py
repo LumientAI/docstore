@@ -1,5 +1,5 @@
 """
-docstore MCP server
+lumient-docstore MCP server
 
 Exposes four tools to any MCP-compatible client (Claude Desktop, etc.):
   - extract   Run extraction on a file, return structured result
@@ -22,10 +22,10 @@ from mcp.types import TextContent, Tool
 
 load_dotenv()
 
-from .agents import orchestrator, differ as differ_agent, parser as parser_agent
-from .agents import extractor as extractor_agent
-from .schema import SchemaDescriptor
-from .store import DocStore
+from docstore.agents import orchestrator, differ as differ_agent, parser as parser_agent
+from docstore.agents import extractor as extractor_agent
+from docstore.schema import SchemaDescriptor
+from docstore.store import DocStore
 
 
 STORE_DIR = os.environ.get("DOCSTORE_DIR", ".docstore")
@@ -284,7 +284,16 @@ async def _handle_stats() -> list[TextContent]:
 
 def main():
     import asyncio
-    asyncio.run(stdio_server(server))
+
+    async def _run() -> None:
+        async with stdio_server() as (read_stream, write_stream):
+            await server.run(
+                read_stream,
+                write_stream,
+                server.create_initialization_options(),
+            )
+
+    asyncio.run(_run())
 
 
 if __name__ == "__main__":

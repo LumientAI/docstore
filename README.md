@@ -48,7 +48,7 @@ Run the benchmark yourself: `python scripts/benchmark.py ./your_documents --runs
 ## Installation
 
 ```bash
-pip install docstore
+pip install lumient-docstore
 ```
 
 Or from source:

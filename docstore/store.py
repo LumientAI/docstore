@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .schema import ExtractionResult, SchemaDescriptor
+from docstore.schema import ExtractionResult, SchemaDescriptor
 
 
 DEFAULT_STORE_DIR = ".docstore"
