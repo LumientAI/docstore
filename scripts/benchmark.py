@@ -15,12 +15,15 @@ import time
 from pathlib import Path
 
 import anthropic
+from dotenv import load_dotenv
 from rich import print as rprint
 from rich.table import Table
 from rich.console import Console
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+load_dotenv()
 
 from docstore.agents import orchestrator, parser as parser_agent
 from docstore.schema import SchemaDescriptor
@@ -54,7 +57,7 @@ def run_benchmark(directory: Path, schema_name: str, runs: int = 3):
     else:
         rprint(f"[bold]Schema '{schema_name}' not found. Describe the fields:[/bold]")
         user_input = input("> ")
-        descriptor = orchestrator.elicit_schema(user_input, existing, client)
+        descriptor = orchestrator.elicit_schema(user_input, existing, client, name=schema_name)
         rprint(f"[dim]Created schema: {descriptor.name} v{descriptor.version}[/dim]")
 
     baseline = baseline_tokens(directory)
@@ -70,6 +73,8 @@ def run_benchmark(directory: Path, schema_name: str, runs: int = 3):
     table.add_column("Saving %", justify="right")
     table.add_column("Time (s)", justify="right")
 
+    total_used = 0
+    total_saved = 0
     for run in range(1, runs + 1):
         t0 = time.time()
         results = orchestrator.run_directory(directory, descriptor, store, client)
@@ -77,8 +82,11 @@ def run_benchmark(directory: Path, schema_name: str, runs: int = 3):
 
         hits   = sum(1 for r in results if r.cache_hit)
         misses = len(results) - hits
-        used   = sum(r.tokens_used for r in results)
-        saved  = sum(r.tokens_saved for r in results)
+        # tokens_used counts only fresh LLM work — cache hits return historical values
+        used   = sum(r.tokens_used for r in results if not r.cache_hit)
+        saved  = sum(r.tokens_saved for r in results if r.cache_hit)
+        total_used += used
+        total_saved += saved
         saving_pct = f"{saved / (used + saved) * 100:.1f}%" if (used + saved) > 0 else "—"
 
         table.add_row(
@@ -93,14 +101,16 @@ def run_benchmark(directory: Path, schema_name: str, runs: int = 3):
 
     console.print(table)
 
-    # Summary
-    s = store.stats()
-    rprint(f"\n[bold]Total tokens saved across all runs:[/bold] {s['total_tokens_saved']:,}")
-    rprint(f"[bold]Estimated cost saved:[/bold] ${s['estimated_cost_saved_usd']:.4f}")
-    rprint(
-        f"\n[dim]Baseline cost (re-read everything, {runs} runs): "
-        f"~${baseline * runs / 1_000_000 * 0.25:.4f}[/dim]"
-    )
+    # Summary across runs — Haiku 4.5 blended estimate ($1/MTok input, $5/MTok output,
+    # extraction is ~95% input so blended ≈ $1.20/MTok; rounded to $1.00 conservatively).
+    HAIKU_BLENDED_USD_PER_MTOK = 1.00
+    cost_spent = total_used / 1_000_000 * HAIKU_BLENDED_USD_PER_MTOK
+    cost_saved = total_saved / 1_000_000 * HAIKU_BLENDED_USD_PER_MTOK
+    rprint(f"\n[bold]Across {runs} runs:[/bold]")
+    rprint(f"  Tokens spent on LLM calls : {total_used:,}  (~${cost_spent:.4f})")
+    rprint(f"  Tokens avoided by cache   : {total_saved:,}  (~${cost_saved:.4f})")
+    rprint(f"\n[dim]Cost estimates use ${HAIKU_BLENDED_USD_PER_MTOK:.2f}/MTok "
+           f"(Haiku 4.5 blended).[/dim]")
 
 
 if __name__ == "__main__":

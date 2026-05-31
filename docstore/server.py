@@ -15,9 +15,12 @@ import os
 from pathlib import Path
 
 import anthropic
+from dotenv import load_dotenv
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
+
+load_dotenv()
 
 from .agents import orchestrator, differ as differ_agent, parser as parser_agent
 from .agents import extractor as extractor_agent
@@ -30,7 +33,30 @@ MODEL = os.environ.get("DOCSTORE_MODEL", "claude-haiku-4-5-20251001")
 
 server = Server("docstore")
 store = DocStore(root=Path(STORE_DIR))
-client = anthropic.Anthropic()
+
+# Lazy-init the Anthropic client so importing this module doesn't require an
+# API key — only the tool handlers that actually make LLM calls do.
+_client: anthropic.Anthropic | None = None
+
+
+def _get_client() -> anthropic.Anthropic:
+    global _client
+    if _client is None:
+        _client = anthropic.Anthropic()
+    return _client
+
+
+def _hydrate_descriptor(schema_name: str, version: str) -> SchemaDescriptor | None:
+    """Rebuild a full SchemaDescriptor by reading fields from any cached entry.
+    Returns None if no entry exists or the entry predates field persistence."""
+    sample = next(store.root.glob(f"*__{schema_name}__{version}.json"), None)
+    if sample is None:
+        return None
+    data = json.loads(sample.read_text())
+    fields = data.get("schema_fields", {})
+    if not fields:
+        return None
+    return SchemaDescriptor(name=schema_name, fields=fields, version=version)
 
 
 @server.list_tools()
@@ -131,30 +157,37 @@ async def _handle_extract(args: dict) -> list[TextContent]:
         )
     elif schema_name:
         existing = store.list_schemas()
-        if schema_name in existing:
-            versions = existing[schema_name]
-            descriptor = SchemaDescriptor(
-                name=schema_name, fields={}, version=versions[-1]
-            )
-        else:
+        if schema_name not in existing:
             return [TextContent(
                 type="text",
                 text=f"Schema '{schema_name}' not found. Available: {list(existing.keys())}"
             )]
+        descriptor = _hydrate_descriptor(schema_name, existing[schema_name][-1])
+        if descriptor is None:
+            return [TextContent(
+                type="text",
+                text=f"Schema '{schema_name}' has no field metadata (predates field "
+                     f"persistence). Re-extract via the CLI to migrate, or supply 'fields'."
+            )]
     else:
-        # Try to find any existing schema for this file
+        # No schema given — try to reuse any schema cached for this file
         entries = store.list_entries_for_file(file_path)
-        if entries:
-            schema_name, version = entries[0]
-            descriptor = SchemaDescriptor(name=schema_name, fields={}, version=version)
-        else:
+        if not entries:
             return [TextContent(
                 type="text",
                 text="No schema provided and no existing schema found for this file. "
                      "Please provide 'fields' or 'schema_name'."
             )]
+        schema_name, version = entries[0]
+        descriptor = _hydrate_descriptor(schema_name, version)
+        if descriptor is None:
+            return [TextContent(
+                type="text",
+                text=f"Found schema '{schema_name}' for this file but it has no field "
+                     f"metadata. Re-extract via the CLI to migrate, or supply 'fields'."
+            )]
 
-    result = orchestrator.run_pipeline(file_path, descriptor, store, client, MODEL)
+    result = orchestrator.run_pipeline(file_path, descriptor, store, _get_client(), MODEL)
     return [TextContent(type="text", text=json.dumps({
         "data": result.data,
         "valid": result.valid,
@@ -199,22 +232,30 @@ async def _handle_diff(args: dict) -> list[TextContent]:
     file_path = Path(args["file_path"])
     schema_name = args["schema_name"]
 
-    entries = store.list_entries_for_file(file_path)
-    matching = [e for e in entries if e[0] == schema_name]
-    if not matching:
+    # Look up by file path, not by current file hash — diff is only useful when
+    # the file has changed, which would make a hash-keyed lookup miss.
+    stored = store.find_for_path(file_path, schema_name)
+    if stored is None:
         return [TextContent(
             type="text",
             text=f"No stored result for schema '{schema_name}' on {file_path.name}"
         )]
 
-    sname, version = matching[0]
-    descriptor = SchemaDescriptor(name=sname, fields={}, version=version)
-    stored = store.get(file_path, descriptor)
-    if not stored:
-        return [TextContent(type="text", text="Could not retrieve stored result.")]
+    if not stored.schema_fields:
+        return [TextContent(
+            type="text",
+            text=f"Cached entry for '{schema_name}' has no field metadata "
+                 f"(predates field persistence). Re-extract via the CLI to migrate."
+        )]
+
+    descriptor = SchemaDescriptor(
+        name=stored.schema_name,
+        fields=stored.schema_fields,
+        version=stored.schema_version,
+    )
 
     raw_text = parser_agent.parse(file_path)
-    current_data, _ = extractor_agent.extract(raw_text, descriptor, client, MODEL)
+    current_data, _ = extractor_agent.extract(raw_text, descriptor, _get_client(), MODEL)
     current_hash = store.file_hash(file_path)
 
     result = differ_agent.diff(
@@ -224,7 +265,7 @@ async def _handle_diff(args: dict) -> list[TextContent]:
         file_path=str(file_path),
         previous_hash=stored.file_hash,
         current_hash=current_hash,
-        client=client,
+        client=_get_client(),
         model=MODEL,
     )
 

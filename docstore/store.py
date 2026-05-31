@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -117,6 +116,27 @@ class DocStore:
                 schemas.setdefault(schema_name, set()).add(version)
         return {k: sorted(v) for k, v in schemas.items()}
 
+    def find_for_path(
+        self, file_path: Path, schema_name: str
+    ) -> ExtractionResult | None:
+        """
+        Return the most recent cached extraction for a file path under a given
+        schema, regardless of the file's current content. Used by `diff` to find
+        the previous extraction *after* the file has changed (which would make
+        a file-hash lookup miss).
+        """
+        target = str(file_path)
+        candidates: list[dict] = []
+        for path in self.root.glob(f"*__{schema_name}__*.json"):
+            with open(path) as f:
+                data = json.load(f)
+            if data.get("file_path") == target:
+                candidates.append(data)
+        if not candidates:
+            return None
+        candidates.sort(key=lambda d: d.get("extracted_at", ""), reverse=True)
+        return ExtractionResult(**candidates[0])
+
     def list_entries_for_file(
         self, file_path: Path
     ) -> list[tuple[str, str]]:
@@ -135,23 +155,27 @@ class DocStore:
     # ── Stats ──────────────────────────────────────────────────────────────
 
     def stats(self) -> StoreStats:
+        """
+        Lifetime view of the cache. We report the LLM work *absorbed* into the cache
+        (tokens_cached = sum of tokens_used across persisted entries). We don't track
+        cache-hit counts, so "tokens saved per query" is reported per-run by the
+        benchmark, not here.
+        """
         entries = list(self.root.glob("*.json"))
-        total_tokens_used = 0
-        total_tokens_saved = 0
+        total_tokens_cached = 0
         schema_counts: dict[str, int] = {}
 
         for path in entries:
             with open(path) as f:
                 data = json.load(f)
-            total_tokens_used  += data.get("tokens_used", 0)
-            total_tokens_saved += data.get("tokens_saved", 0)
+            total_tokens_cached += data.get("tokens_used", 0)
             sname = data.get("schema_name", "unknown")
             schema_counts[sname] = schema_counts.get(sname, 0) + 1
 
+        # Haiku 4.5 blended estimate — see scripts/benchmark.py for derivation.
         return StoreStats(
             total_entries=len(entries),
             schema_counts=schema_counts,
-            total_tokens_used=total_tokens_used,
-            total_tokens_saved=total_tokens_saved,
-            estimated_cost_saved_usd=round(total_tokens_saved / 1_000_000 * 0.25, 4),
+            total_tokens_cached=total_tokens_cached,
+            estimated_cost_to_recompute_usd=round(total_tokens_cached / 1_000_000 * 1.00, 4),
         )

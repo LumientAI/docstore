@@ -11,7 +11,7 @@ import hashlib
 import json
 from typing import Any
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 
 
 # Supported field types the orchestrator normalises to
@@ -83,7 +83,6 @@ class ExtractionSchema:
 
     @classmethod
     def to_descriptor(cls) -> SchemaDescriptor:
-        import inspect
         hints = {}
         for name, annotation in cls.__annotations__.items():
             if name.startswith("_"):
@@ -98,6 +97,7 @@ class ExtractionResult(BaseModel):
 
     schema_name: str
     schema_version: str
+    schema_fields: dict[str, str] = {}
     file_path: str
     file_hash: str
     data: dict[str, Any]

@@ -81,7 +81,8 @@ Summarise the changes."""
         messages=[{"role": "user", "content": user_message}],
     )
 
-    import re, json as _json
+    import re
+    import json as _json
     raw = response.content[0].text.strip()
     raw = re.sub(r"^```(?:json)?\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)

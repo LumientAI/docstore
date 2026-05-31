@@ -7,6 +7,7 @@ Commands:
   diff      Compare current file against stored version
   schemas   List all schemas in the store
   stats     Show cache stats and token savings
+  clean     Delete cached extraction results
   shell     Interactive schema elicitation shell
 """
 
@@ -17,12 +18,15 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+from dotenv import load_dotenv
 from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
+load_dotenv()
+
 from .agents import orchestrator, differ as differ_agent
-from .schema import ExtractionSchema, SchemaDescriptor
+from .schema import SchemaDescriptor
 from .store import DocStore
 
 app = typer.Typer(
@@ -37,6 +41,18 @@ def _get_store(store_dir: str) -> DocStore:
     return DocStore(root=Path(store_dir))
 
 
+def _resolve_store_for_path(path: Path, store_dir: str) -> str:
+    """Co-locate the cache with the corpus when --store is at its default.
+
+    Matches the benchmark's `directory/.docstore` convention so the cache
+    travels with the data. If the user passed --store explicitly, honor that.
+    """
+    if store_dir != ".docstore":
+        return store_dir
+    base = path if path.is_dir() else path.parent
+    return str(base / ".docstore")
+
+
 # ── extract ────────────────────────────────────────────────────────────────
 
 @app.command()
@@ -44,22 +60,29 @@ def extract(
     path: Path = typer.Argument(..., help="File or directory to process"),
     schema: Optional[str] = typer.Option(None, "--schema", "-s", help="Schema name from store"),
     ask: bool = typer.Option(False, "--ask", help="Describe fields interactively"),
-    store_dir: str = typer.Option(".docstore", "--store", help="Store directory"),
+    validate: bool = typer.Option(False, "--validate",
+        help="Run a second LLM call per file to validate extracted data. "
+             "Doubles cold-extract cost; off by default."),
+    store_dir: str = typer.Option(".docstore", "--store",
+        help="Store directory. Defaults to <path>/.docstore so the cache "
+             "lives with the corpus."),
     model: str = typer.Option("claude-haiku-4-5-20251001", "--model"),
 ):
     """Extract structured data from a file or directory."""
     import anthropic
     client = anthropic.Anthropic()
-    store = _get_store(store_dir)
+    store = _get_store(_resolve_store_for_path(path, store_dir))
 
     # Resolve schema descriptor
     descriptor = _resolve_descriptor(store, schema, ask, client)
 
     if path.is_dir():
         rprint(f"[gold1]Scanning[/gold1] {path} ...")
-        results = orchestrator.run_directory(path, descriptor, store, client, model)
+        results = orchestrator.run_directory(path, descriptor, store, client, model,
+                                             validate=validate)
     else:
-        results = [orchestrator.run_pipeline(path, descriptor, store, client, model)]
+        results = [orchestrator.run_pipeline(path, descriptor, store, client, model,
+                                             validate=validate)]
 
     # Summary table
     table = Table(title="Extraction Results")
@@ -82,8 +105,7 @@ def extract(
 
     console.print(table)
 
-    hits  = sum(1 for r in results if r.cache_hit)
-    misses = len(results) - hits
+    hits = sum(1 for r in results if r.cache_hit)
     total_saved = sum(r.tokens_saved for r in results)
     rprint(
         f"\n[dim]Cache hits: {hits} / {len(results)} — "
@@ -116,7 +138,8 @@ def query(
         rprint(json.dumps([r.data for r in results], indent=2))
         return
 
-    # Table output — columns from first result's data keys
+    # Table output — columns from first result's data keys.
+    # Nested values get summarised so they don't wrap character-by-character.
     if results:
         keys = list(results[0].data.keys())
         table = Table(title=f"{schema} — {len(results)} records")
@@ -124,7 +147,7 @@ def query(
         for k in keys:
             table.add_column(k)
         for r in results:
-            row = [Path(r.file_path).name] + [str(r.data.get(k, "")) for k in keys]
+            row = [Path(r.file_path).name] + [_fmt_cell(r.data.get(k)) for k in keys]
             table.add_row(*row)
         console.print(table)
 
@@ -135,50 +158,44 @@ def query(
 def diff(
     file_path: Path = typer.Argument(..., help="File to diff against stored version"),
     schema: str = typer.Option(..., "--schema", "-s"),
-    store_dir: str = typer.Option(".docstore", "--store"),
+    store_dir: str = typer.Option(".docstore", "--store",
+        help="Store directory. Defaults to <file_path's parent>/.docstore."),
     model: str = typer.Option("claude-haiku-4-5-20251001", "--model"),
 ):
     """Compare current file against its stored extraction."""
     import anthropic
     client = anthropic.Anthropic()
-    store = _get_store(store_dir)
+    store = _get_store(_resolve_store_for_path(file_path, store_dir))
 
-    # Find existing stored entry
-    entries = store.list_entries_for_file(file_path)
-    matching = [e for e in entries if e[0] == schema]
-
-    if not matching:
+    # Find the previous extraction by file path (not by current file hash —
+    # the file may have changed, which is the whole point of diff).
+    stored = store.find_for_path(file_path, schema)
+    if stored is None:
         rprint(f"[red]No stored result found for '{schema}' on {file_path.name}[/red]")
         raise typer.Exit(1)
 
-    schema_name, version = matching[0]
-    descriptor = SchemaDescriptor(name=schema_name, fields={}, version=version)
-
-    # Get stored result
-    stored = store.get(file_path, descriptor)
-    if stored is None:
-        rprint("[red]Could not retrieve stored result.[/red]")
+    if not stored.schema_fields:
+        rprint("[red]Cached entry has no field metadata (predates field "
+               "persistence). Re-extract this file first to migrate.[/red]")
         raise typer.Exit(1)
 
-    # Run fresh extraction
-    rprint(f"[gold1]Re-extracting[/gold1] {file_path.name} ...")
-
-    # Need full descriptor — load from stored metadata
-    full_descriptor = SchemaDescriptor(
+    descriptor = SchemaDescriptor(
         name=stored.schema_name,
-        fields={},  # fields not stored in result — re-elicit or pass --ask
+        fields=stored.schema_fields,
         version=stored.schema_version,
     )
 
+    rprint(f"[gold1]Re-extracting[/gold1] {file_path.name} ...")
+
     from .agents import parser as parser_agent, extractor as extractor_agent
     raw_text = parser_agent.parse(file_path)
-    current_data, _ = extractor_agent.extract(raw_text, full_descriptor, client, model)
+    current_data, _ = extractor_agent.extract(raw_text, descriptor, client, model)
     current_hash = store.file_hash(file_path)
 
     result = differ_agent.diff(
         previous=stored.data,
         current=current_data,
-        descriptor=full_descriptor,
+        descriptor=descriptor,
         file_path=str(file_path),
         previous_hash=stored.file_hash,
         current_hash=current_hash,
@@ -241,10 +258,9 @@ def stats(
     s = store.stats()
 
     rprint(f"\n[bold]docstore stats[/bold] ({store_dir})\n")
-    rprint(f"  Total entries      : {s['total_entries']}")
-    rprint(f"  Tokens consumed    : {s['total_tokens_used']:,}")
-    rprint(f"  Tokens saved       : {s['total_tokens_saved']:,}")
-    rprint(f"  Estimated $ saved  : ${s['estimated_cost_saved_usd']:.4f}")
+    rprint(f"  Total entries           : {s['total_entries']}")
+    rprint(f"  Tokens absorbed by cache: {s['total_tokens_cached']:,}")
+    rprint(f"  Cost to re-extract all  : ${s['estimated_cost_to_recompute_usd']:.4f}")
     if s["schema_counts"]:
         rprint("\n  [bold]By schema:[/bold]")
         for name, count in s["schema_counts"].items():
@@ -252,18 +268,54 @@ def stats(
     rprint("")
 
 
+# ── clean ──────────────────────────────────────────────────────────────────
+
+@app.command()
+def clean(
+    store_dir: str = typer.Option(".docstore", "--store"),
+    schema: Optional[str] = typer.Option(None, "--schema", "-s",
+        help="Only delete entries for this schema. Omit to delete all."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
+):
+    """Delete cached extraction results. Use --schema to scope to one schema."""
+    store = _get_store(store_dir)
+
+    if schema:
+        pattern = f"*__{schema}__*.json"
+        target = f"all entries for schema '{schema}'"
+    else:
+        pattern = "*.json"
+        target = "ALL cached entries"
+
+    entries = list(store.root.glob(pattern))
+    if not entries:
+        rprint(f"[yellow]Nothing to delete in {store.root} (no entries matched).[/yellow]")
+        return
+
+    rprint(f"\n[bold]About to delete {len(entries)} entries[/bold] "
+           f"({target}) from {store.root}")
+    if not yes and not typer.confirm("Proceed?", default=False):
+        rprint("[yellow]Aborted.[/yellow]")
+        raise typer.Exit()
+
+    for p in entries:
+        p.unlink()
+    rprint(f"[green]Deleted {len(entries)} entries.[/green]")
+
+
 # ── shell ──────────────────────────────────────────────────────────────────
 
 @app.command()
 def shell(
     path: Path = typer.Argument(..., help="File or directory to process"),
-    store_dir: str = typer.Option(".docstore", "--store"),
+    store_dir: str = typer.Option(".docstore", "--store",
+        help="Store directory. Defaults to <path>/.docstore."),
     model: str = typer.Option("claude-haiku-4-5-20251001", "--model"),
 ):
     """Interactive shell — describe fields in plain language."""
     import anthropic
     client = anthropic.Anthropic()
-    store = _get_store(store_dir)
+    store = _get_store(_resolve_store_for_path(path, store_dir))
 
     existing = store.list_schemas()
     if existing:
@@ -314,22 +366,45 @@ def _resolve_descriptor(
     if ask:
         existing = store.list_schemas()
         user_input = typer.prompt("Describe the fields you want to extract")
-        return orchestrator.elicit_schema(user_input, existing, client)
+        return orchestrator.elicit_schema(user_input, existing, client, name=schema_name)
 
     if schema_name:
         existing = store.list_schemas()
         if schema_name in existing:
             versions = existing[schema_name]
-            # Return a descriptor shell — fields will be matched by name+version
-            return SchemaDescriptor(name=schema_name, fields={}, version=versions[-1])
+            version = versions[-1]
+            sample = next(store.root.glob(f"*__{schema_name}__{version}.json"), None)
+            if sample is not None:
+                with open(sample) as f:
+                    data = json.load(f)
+                fields = data.get("schema_fields", {})
+                if fields:
+                    return SchemaDescriptor(name=schema_name, fields=fields, version=version)
+            rprint(f"[yellow]Schema '{schema_name}' exists but predates field "
+                   f"persistence. Re-eliciting...[/yellow]")
+            user_input = typer.prompt("Describe the fields you want to extract")
+            return orchestrator.elicit_schema(user_input, existing, client, name=schema_name)
         rprint(f"[yellow]Schema '{schema_name}' not found in store. Eliciting...[/yellow]")
         user_input = typer.prompt("Describe the fields you want to extract")
-        return orchestrator.elicit_schema(user_input, existing, client)
+        return orchestrator.elicit_schema(user_input, existing, client, name=schema_name)
 
     # No schema provided — ask
     existing = store.list_schemas()
     user_input = typer.prompt("Describe the fields you want to extract")
     return orchestrator.elicit_schema(user_input, existing, client)
+
+
+def _fmt_cell(value) -> str:
+    """Render a result-data value for a table cell. Summarise nested structures
+    so they don't wrap character-by-character. Full data is still available
+    via `--output json`."""
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return f"[{len(value)} items]"
+    if isinstance(value, dict):
+        return f"{{{len(value)} keys}}"
+    return str(value)
 
 
 def _build_filter(expr: str):

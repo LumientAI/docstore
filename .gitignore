@@ -1,0 +1,20 @@
+# Secrets
+.env
+
+# docstore cache (per-corpus)
+.docstore/
+sample_invoices/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+dist/
+
+# Tooling
+.idea/
+.vscode/
+.ruff_cache/
+.pytest_cache/

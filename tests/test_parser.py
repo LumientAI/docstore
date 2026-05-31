@@ -1,7 +1,5 @@
 """Tests for the parser subagent."""
 
-from pathlib import Path
-import tempfile
 
 from docstore.agents.parser import estimate_tokens, parse
 
