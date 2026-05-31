@@ -119,7 +119,8 @@ def query(
         rprint(json.dumps([r.data for r in results], indent=2))
         return
 
-    # Table output — columns from first result's data keys
+    # Table output — columns from first result's data keys.
+    # Nested values get summarised so they don't wrap character-by-character.
     if results:
         keys = list(results[0].data.keys())
         table = Table(title=f"{schema} — {len(results)} records")
@@ -127,7 +128,7 @@ def query(
         for k in keys:
             table.add_column(k)
         for r in results:
-            row = [Path(r.file_path).name] + [str(r.data.get(k, "")) for k in keys]
+            row = [Path(r.file_path).name] + [_fmt_cell(r.data.get(k)) for k in keys]
             table.add_row(*row)
         console.print(table)
 
@@ -326,12 +327,25 @@ def _resolve_descriptor(
             return SchemaDescriptor(name=schema_name, fields={}, version=versions[-1])
         rprint(f"[yellow]Schema '{schema_name}' not found in store. Eliciting...[/yellow]")
         user_input = typer.prompt("Describe the fields you want to extract")
-        return orchestrator.elicit_schema(user_input, existing, client)
+        return orchestrator.elicit_schema(user_input, existing, client, name=schema_name)
 
     # No schema provided — ask
     existing = store.list_schemas()
     user_input = typer.prompt("Describe the fields you want to extract")
     return orchestrator.elicit_schema(user_input, existing, client)
+
+
+def _fmt_cell(value) -> str:
+    """Render a result-data value for a table cell. Summarise nested structures
+    so they don't wrap character-by-character. Full data is still available
+    via `--output json`."""
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return f"[{len(value)} items]"
+    if isinstance(value, dict):
+        return f"{{{len(value)} keys}}"
+    return str(value)
 
 
 def _build_filter(expr: str):

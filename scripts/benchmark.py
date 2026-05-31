@@ -57,7 +57,7 @@ def run_benchmark(directory: Path, schema_name: str, runs: int = 3):
     else:
         rprint(f"[bold]Schema '{schema_name}' not found. Describe the fields:[/bold]")
         user_input = input("> ")
-        descriptor = orchestrator.elicit_schema(user_input, existing, client)
+        descriptor = orchestrator.elicit_schema(user_input, existing, client, name=schema_name)
         rprint(f"[dim]Created schema: {descriptor.name} v{descriptor.version}[/dim]")
 
     baseline = baseline_tokens(directory)

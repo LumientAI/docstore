@@ -39,9 +39,13 @@ def elicit_schema(
     user_description: str,
     existing_schemas: dict[str, list[str]],
     client: anthropic.Anthropic | None = None,
+    name: str | None = None,
 ) -> SchemaDescriptor:
     """
     Turn a natural language field description into a SchemaDescriptor.
+
+    If `name` is provided (typically from the CLI `--schema` flag), it is used
+    verbatim. Otherwise the model infers a name from the field set.
 
     Presents existing schemas if any match, to encourage cache reuse.
     """
@@ -51,6 +55,7 @@ def elicit_schema(
     response = client.messages.create(
         model=MODEL,
         max_tokens=512,
+        temperature=0,
         system=NORMALISE_SYSTEM,
         messages=[
             {
@@ -69,8 +74,8 @@ def elicit_schema(
         raise ValueError(f"No JSON object found in schema response: {raw!r}")
     fields, _ = decoder.raw_decode(raw, start)
 
-    # Infer a schema name from the field set
-    name = _infer_schema_name(fields, client)
+    if name is None:
+        name = _infer_schema_name(fields, client)
 
     return SchemaDescriptor(name=name, fields=fields)
 
@@ -81,6 +86,7 @@ def _infer_schema_name(fields: dict[str, str], client: anthropic.Anthropic) -> s
     response = client.messages.create(
         model=MODEL,
         max_tokens=32,
+        temperature=0,
         system="Return a short snake_case schema name (3 words max) based on these field names. Return ONLY the name.",
         messages=[{"role": "user", "content": str(keys)}],
     )
