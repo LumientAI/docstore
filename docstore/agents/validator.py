@@ -11,8 +11,8 @@ import json
 import re
 from typing import Any
 
-from ..llm import LLMClient, create_llm_client
-from ..schema import SchemaDescriptor
+from docstore.llm import LLMClient, create_llm_client
+from docstore.schema import SchemaDescriptor
 
 
 MODEL = "claude-haiku-4-5-20251001"

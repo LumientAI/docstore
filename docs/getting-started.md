@@ -7,7 +7,7 @@ Install, configure, and run your first cached extraction. ~3 minutes.
 === "pip"
 
     ```bash
-    pip install docstore
+    pip install lumient-docstore
     ```
 
 === "From source"
@@ -100,6 +100,15 @@ docstore stats --store sample_invoices/.docstore
 docstore schemas --store sample_invoices/.docstore
 ```
 
+## Sync stale entries
+
+If you move or delete source files after extracting them, their cache entries become stale — they'll still appear in `query` results even though the files are gone. Remove them with:
+
+```bash
+docstore sync --store sample_invoices/.docstore        # dry run, reports stale paths
+docstore sync --store sample_invoices/.docstore --yes  # delete stale entries
+```
+
 ## Clean up
 
 Wipe the cache for one schema, or everything:
@@ -109,8 +118,79 @@ docstore clean --store sample_invoices/.docstore --schema invoice_schema
 docstore clean --store sample_invoices/.docstore --yes
 ```
 
+## Use it from Claude Desktop (MCP server)
+
+docstore ships an MCP server that exposes its tools to any MCP-compatible client. To wire it into Claude Desktop, add this to your `claude_desktop_config.json`:
+
+=== "macOS"
+
+    ```
+    ~/Library/Application Support/Claude/claude_desktop_config.json
+    ```
+
+=== "Windows"
+
+    ```
+    %APPDATA%\Claude\claude_desktop_config.json
+    ```
+
+```json
+{
+  "mcpServers": {
+    "docstore": {
+      "command": "docstore-server",
+      "env": {
+        "DOCSTORE_DIR": "/absolute/path/to/your/.docstore",
+        "ANTHROPIC_API_KEY": "sk-ant-..."
+      }
+    }
+  }
+}
+```
+
+Restart Claude Desktop. The `docstore` server will appear in the connected MCP servers list and Claude can call four tools directly:
+
+| Tool | What it does |
+|---|---|
+| `extract` | Run extraction on a file. Cached if the file is unchanged. |
+| `query` | Query stored results by schema name and optional filter. |
+| `diff` | Compare a file against its stored extraction. |
+| `stats` | Return cache statistics. |
+
+### Notes
+
+- **`command`** must resolve via the shell `PATH`. `pip install docstore` puts `docstore-server` on your path; if Claude Desktop can't find it, use the absolute path (run `which docstore-server` to get it).
+- **`DOCSTORE_DIR`** must be absolute — Claude Desktop launches the server from its own working directory, not yours.
+- **`ANTHROPIC_API_KEY`** can also come from `.env` in `DOCSTORE_DIR`'s parent, but inlining it in the config is simpler.
+- **Lazy auth**: the server doesn't construct an Anthropic client at startup, so an invalid key won't prevent Claude Desktop from connecting — failures only surface when you actually call `extract` or `diff`.
+
+### Test it without Claude Desktop
+
+The MCP Python SDK ships a client you can use to verify the server end-to-end:
+
+```python
+import asyncio
+from mcp import StdioServerParameters
+from mcp.client.stdio import stdio_client
+from mcp.client.session import ClientSession
+
+async def main():
+    params = StdioServerParameters(
+        command="docstore-server",
+        env={"DOCSTORE_DIR": "/absolute/path/to/your/.docstore"},
+    )
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            result = await session.call_tool("stats", {})
+            print(result.content[0].text)
+
+asyncio.run(main())
+```
+
+If `stats` returns your cache summary, the server is working.
+
 ## Next steps
 
 - The full [CLI reference](cli-reference.md) covers every command and flag.
 - The Python API mirrors the CLI — `from docstore import DocStore, ExtractionSchema`.
-- For Claude Desktop integration, add `docstore-server` to `claude_desktop_config.json` (see the README).

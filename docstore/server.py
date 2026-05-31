@@ -1,5 +1,5 @@
 """
-docstore MCP server
+lumient-docstore MCP server
 
 Exposes four tools to any MCP-compatible client (Claude Desktop, etc.):
   - extract   Run extraction on a file, return structured result
@@ -22,11 +22,11 @@ from mcp.types import TextContent, Tool
 
 load_dotenv()
 
-from .agents import orchestrator, differ as differ_agent, parser as parser_agent
-from .agents import extractor as extractor_agent
-from .llm import DEFAULT_PROVIDER, LLMClient, ProviderName, create_llm_client, resolve_model
-from .schema import SchemaDescriptor
-from .store import DocStore
+from docstore.agents import orchestrator, differ as differ_agent, parser as parser_agent
+from docstore.agents import extractor as extractor_agent
+from docstore.llm import DEFAULT_PROVIDER, LLMClient, ProviderName, create_llm_client, resolve_model
+from docstore.schema import SchemaDescriptor
+from docstore.store import DocStore
 
 
 STORE_DIR = os.environ.get("DOCSTORE_DIR", ".docstore")
@@ -127,6 +127,22 @@ async def list_tools() -> list[Tool]:
             description="Return cache hit statistics and token savings for the store.",
             inputSchema={"type": "object", "properties": {}},
         ),
+        Tool(
+            name="sync",
+            description=(
+                "Find cache entries whose source file no longer exists on disk. "
+                "Returns the list of stale file paths. Pass delete=true to remove them."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "delete": {
+                        "type": "boolean",
+                        "description": "If true, delete the stale cache entries. Default false (dry run).",
+                    },
+                },
+            },
+        ),
     ]
 
 
@@ -140,6 +156,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return await _handle_diff(arguments)
     elif name == "stats":
         return await _handle_stats()
+    elif name == "sync":
+        return await _handle_sync(arguments)
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
@@ -279,6 +297,16 @@ async def _handle_diff(args: dict) -> list[TextContent]:
     }, indent=2))]
 
 
+async def _handle_sync(args: dict) -> list[TextContent]:
+    delete = args.get("delete", False)
+    stale = store.sync(delete=delete)
+    return [TextContent(type="text", text=json.dumps({
+        "stale_count": len(stale),
+        "deleted": delete,
+        "stale_paths": stale,
+    }, indent=2))]
+
+
 async def _handle_stats() -> list[TextContent]:
     s = store.stats()
     return [TextContent(type="text", text=json.dumps(dict(s), indent=2))]
@@ -286,7 +314,16 @@ async def _handle_stats() -> list[TextContent]:
 
 def main():
     import asyncio
-    asyncio.run(stdio_server(server))
+
+    async def _run() -> None:
+        async with stdio_server() as (read_stream, write_stream):
+            await server.run(
+                read_stream,
+                write_stream,
+                server.create_initialization_options(),
+            )
+
+    asyncio.run(_run())
 
 
 if __name__ == "__main__":

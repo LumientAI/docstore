@@ -10,8 +10,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ..llm import LLMClient, create_llm_client
-from ..schema import DiffResult, SchemaDescriptor
+from docstore.llm import LLMClient, create_llm_client
+from docstore.schema import DiffResult, SchemaDescriptor
 
 
 MODEL = "claude-haiku-4-5-20251001"

@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .schema import ExtractionResult, SchemaDescriptor
+from docstore.schema import ExtractionResult, SchemaDescriptor
 
 
 DEFAULT_STORE_DIR = ".docstore"
@@ -195,6 +195,28 @@ class DocStore:
                 _, schema_name, version = parts
                 results.append((schema_name, version))
         return results
+
+    # ── Sync ───────────────────────────────────────────────────────────────
+
+    def sync(self, delete: bool = False) -> list[str]:
+        """
+        Find cache entries whose source file no longer exists on disk.
+        Returns the list of stale source file paths.
+        If delete=True, removes the corresponding cache files.
+        """
+        stale_cache_paths: list[Path] = []
+        stale_source_paths: list[str] = []
+        for path in self.root.glob("*.json"):
+            with open(path) as f:
+                data = json.load(f)
+            file_path = data.get("file_path", "")
+            if file_path and not Path(file_path).exists():
+                stale_cache_paths.append(path)
+                stale_source_paths.append(file_path)
+        if delete:
+            for p in stale_cache_paths:
+                p.unlink()
+        return stale_source_paths
 
     # ── Stats ──────────────────────────────────────────────────────────────
 

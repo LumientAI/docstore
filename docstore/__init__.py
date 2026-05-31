@@ -1,25 +1,19 @@
-"""
-docstore — dbt for unstructured data.
-
-Extract once, query forever.
-"""
-
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
-from .llm import (
+from docstore.llm import (
     DEFAULT_MODELS,
     DEFAULT_PROVIDER,
     LLMResponse,
     ProviderName,
     create_llm_client,
 )
-from .schema import (
+from docstore.schema import (
     DiffResult,
     ExtractionResult,
     ExtractionSchema,
     SchemaDescriptor,
 )
-from .store import DocStore
+from docstore.store import DocStore
 
 __all__ = [
     "DocStore",
@@ -35,6 +29,6 @@ __all__ = [
 ]
 
 try:
-    __version__ = _pkg_version("docstore")
+    __version__ = _pkg_version("lumient-docstore")
 except PackageNotFoundError:
     __version__ = "0.0.0+unknown"

@@ -8,7 +8,7 @@
 
 **dbt for unstructured data. Extract once, query forever.**
 
-Most tools re-read your documents every time you ask a question. docstore extracts the fields you care about once, caches them locally, and answers subsequent queries from the cache — no LLM calls, no re-reading, no waiting.
+Most tools re-read your documents every time you ask a question. docstore extracts the fields you care about once, caches them locally, and answers subsequent queries from the cache - no LLM calls, no re-reading, no waiting.
 
 ```
 Run 1 (cold): 200 invoices → 400 LLM calls → ~$0.40
@@ -26,7 +26,7 @@ LLMs made it easy to extract structured data from documents. What they did not p
 - Requires a database or vector store (complex, overkill for most teams)
 - Stores embeddings for semantic search (wrong abstraction for structured extraction)
 
-docstore treats structured extraction as a **cache over your unstructured data**. Same insight as dbt applied to SQL — you define the transformation once, the system manages the state.
+docstore treats structured extraction as a **cache over your unstructured data**. Same insight as dbt applied to SQL - you define the transformation once, the system manages the state.
 
 ---
 
@@ -52,13 +52,13 @@ benchmark is intended to show cache behavior, not provider quality.
 ## Installation
 
 ```bash
-pip install docstore
+pip install lumient-docstore
 ```
 
 Or from source:
 
 ```bash
-git clone https://github.com/your-org/docstore
+git clone https://github.com/LumientAI/docstore
 cd docstore
 pip install -e ".[dev]"
 ```
@@ -70,7 +70,9 @@ pip install -e ".[dev]"
 ### Python API
 
 ```python
+from pathlib import Path
 from docstore import DocStore, ExtractionSchema, create_llm_client
+from docstore.agents.orchestrator import run_directory
 
 class InvoiceSchema(ExtractionSchema):
     vendor: str
@@ -79,12 +81,14 @@ class InvoiceSchema(ExtractionSchema):
     due_date: str
     paid: bool
 
-from docstore.agents.orchestrator import run_directory
+invoices_dir = Path("./invoices")
 
-store = DocStore()
+# Co-locate the cache with the corpus so the CLI and Python API
+# share state (the CLI's path-taking commands default to this).
+store = DocStore(root=invoices_dir / ".docstore")
 descriptor = InvoiceSchema.to_descriptor()
-client = create_llm_client()  # defaults to Anthropic
-results = run_directory("./invoices", descriptor, store, client)
+client = create_llm_client()  # defaults to Anthropic; pass provider="openai" etc. to override
+results = run_directory(invoices_dir, descriptor, store, client)
 
 # Query without any LLM calls
 unpaid = store.query("InvoiceSchema", lambda r: r.data.get("paid") is False)
@@ -93,7 +97,10 @@ unpaid = store.query("InvoiceSchema", lambda r: r.data.get("paid") is False)
 ### CLI
 
 ```bash
-# Extract — describe fields interactively
+# Generate a synthetic invoice corpus for testing (30 .txt files)
+python scripts/generate_txt_invoices.py ./sample_invoices --count 30
+
+# Extract - describe fields interactively
 docstore shell ./invoices/
 
 # Extract with a named schema
@@ -108,17 +115,24 @@ docstore extract ./invoices/ --schema invoice_schema --provider gemini
 docstore extract ./invoices/ --schema invoice_schema --provider gemini --model gemini-2.5-pro
 
 # Query stored results (no LLM)
-docstore query invoice_schema --filter "paid=false"
+docstore query invoice_schema --filter "is_paid=false" --store ./invoices/.docstore
 
-# Ask in natural language — one LLM call compiles to a filter,
+# Ask in natural language - one LLM call compiles to a filter,
 # results come from cache with no per-document re-reads
-docstore ask "which unpaid invoices are over $5000?" --schema invoice_schema
+docstore ask "which unpaid invoices are over $5000?" --schema invoice_schema --store ./invoices/.docstore
 
 # Diff a changed file
 docstore diff ./invoices/acme_april.pdf --schema invoice_schema
 
+# Remove cache entries whose source file no longer exists
+docstore sync --store ./invoices/.docstore        # dry run
+docstore sync --store ./invoices/.docstore --yes  # delete stale entries
+
+# Wipe the cache (optional --schema X to scope)
+docstore clean --store ./invoices/.docstore --yes
+
 # Stats
-docstore stats
+docstore stats --store ./invoices/.docstore
 ```
 
 ### MCP server (Claude Desktop)
@@ -159,26 +173,29 @@ override it with `--model` on the CLI or `DOCSTORE_MODEL` for the MCP server.
 │       │                                                          │
 │       ▼                                                          │
 │  ┌─────────┐     cache hit?   ──────────────────────────────┐    │
-│  │  Parser │  ─────────────►  .docstore/{hash}.json         │    │
+│  │  Parser │  ─────────────►  .docstore/{key}.json          │    │
 │  └─────────┘     (no LLM)     ──────────────────────────────┘    │
 │       │                                                          │
 │       │ cache miss                                               │
 │       ▼                                                          │
 │  ┌───────────┐                                                   │
-│  │ Extractor │  LLM call 1 — extract fields against schema       │
+│  │ Extractor │  1 LLM call - extract fields against schema       │
 │  └───────────┘                                                   │
 │       │                                                          │
+│       │   (opt-in via --validate)                                │
 │       ▼                                                          │
-│  ┌───────────┐                                                   │
-│  │ Validator │  LLM call 2 — verify plausibility                 │
-│  └───────────┘                                                   │
+│  ┌╌╌╌╌╌╌╌╌╌╌╌┐                                                   │
+│  ╎ Validator ╎  +1 LLM call - sanity-check extracted values      │
+│  └╌╌╌╌╌╌╌╌╌╌╌┘                                                   │
 │       │                                                          │
 │       ▼                                                          │
 │  .docstore/{file_hash}__{schema}__{version}.json                 │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-**Cache key:** `sha256(file_bytes)` + `schema_name` + `sha256(schema_fields)`
+The validator is **off by default** - cold extraction is one LLM call per file. Pass `--validate` to add a plausibility check (doubles cost; see the [CLI reference](docs/cli-reference.md) for trade-offs).
+
+**Cache key:** `sha256(file_bytes)[:16]` + `schema_name` + `sha256(json.dumps(fields, sort_keys=True))[:12]`
 
 The cache invalidates automatically when:
 - The file content changes (file hash changes)
@@ -241,9 +258,17 @@ For cross-document composition and maintained operational records, see [Lumient]
 ## Development
 
 ```bash
+# uv (recommended)
+uv sync --all-extras
+uv run pytest
+uv run ruff check .
+
+# Or with pip
 pip install -e ".[dev]"
 pytest tests/
 ```
+
+See [AGENTS.md](AGENTS.md) for architectural invariants and [CONTRIBUTING.md](CONTRIBUTING.md) for the PR process.
 
 ---
 
