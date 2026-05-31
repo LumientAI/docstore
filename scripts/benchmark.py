@@ -15,12 +15,15 @@ import time
 from pathlib import Path
 
 import anthropic
+from dotenv import load_dotenv
 from rich import print as rprint
 from rich.table import Table
 from rich.console import Console
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+load_dotenv()
 
 from docstore.agents import orchestrator, parser as parser_agent
 from docstore.schema import SchemaDescriptor

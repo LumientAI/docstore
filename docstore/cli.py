@@ -17,9 +17,12 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+from dotenv import load_dotenv
 from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
+
+load_dotenv()
 
 from .agents import orchestrator, differ as differ_agent
 from .schema import ExtractionSchema, SchemaDescriptor

@@ -15,9 +15,12 @@ import os
 from pathlib import Path
 
 import anthropic
+from dotenv import load_dotenv
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
+
+load_dotenv()
 
 from .agents import orchestrator, differ as differ_agent, parser as parser_agent
 from .agents import extractor as extractor_agent

@@ -11,7 +11,11 @@ Demonstrates:
 from pathlib import Path
 import json
 
+from dotenv import load_dotenv
+
 from docstore import DocStore, ExtractionSchema, SchemaDescriptor
+
+load_dotenv()
 
 
 # ── Define schema ──────────────────────────────────────────────────────────

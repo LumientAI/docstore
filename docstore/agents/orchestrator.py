@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import anthropic
+from tqdm import tqdm
 
 from ..schema import ExtractionResult, SchemaDescriptor
 from ..store import DocStore
@@ -147,9 +148,13 @@ def run_directory(
     client: anthropic.Anthropic | None = None,
     model: str = MODEL,
     glob: str = "*",
+    progress: bool = True,
 ) -> list[ExtractionResult]:
     """
     Run the pipeline over all supported files in a directory.
+
+    progress: show a tqdm bar with running cache hit/miss counts. Pass False
+    when embedding docstore in a non-interactive context.
     """
     supported = {".pdf", ".docx", ".txt", ".md", ".csv", ".html", ".json"}
     files = [
@@ -158,8 +163,15 @@ def run_directory(
     ]
 
     results = []
-    for f in files:
+    hits = misses = 0
+    bar = tqdm(files, desc=descriptor.name, unit="doc", disable=not progress)
+    for f in bar:
         result = run_pipeline(f, descriptor, store, client, model)
         results.append(result)
+        if result.cache_hit:
+            hits += 1
+        else:
+            misses += 1
+        bar.set_postfix(hit=hits, miss=misses)
 
     return results
