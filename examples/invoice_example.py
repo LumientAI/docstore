@@ -9,11 +9,10 @@ Demonstrates:
 """
 
 from pathlib import Path
-import json
 
 from dotenv import load_dotenv
 
-from docstore import DocStore, ExtractionSchema, SchemaDescriptor
+from docstore import DocStore, ExtractionSchema
 
 load_dotenv()
 
@@ -32,7 +31,7 @@ class InvoiceSchema(ExtractionSchema):
 # ── Run extraction ─────────────────────────────────────────────────────────
 
 def main():
-    from docstore.agents.orchestrator import run_directory, run_pipeline
+    from docstore.agents.orchestrator import run_directory
     import anthropic
 
     invoices_dir = Path("./sample_invoices")
@@ -54,7 +53,7 @@ def main():
         status = "HIT" if r.cache_hit else "MISS"
         print(f"  {Path(r.file_path).name:<30} [{status}] tokens={r.tokens_used}")
 
-    print(f"\nRun 2 (warm cache):")
+    print("\nRun 2 (warm cache):")
     results = run_directory(invoices_dir, descriptor, store, client)
     for r in results:
         status = "HIT" if r.cache_hit else "MISS"
@@ -69,7 +68,7 @@ def main():
 
     # Stats
     s = store.stats()
-    print(f"\nStats:")
+    print("\nStats:")
     print(f"  Documents              : {s['total_entries']}")
     print(f"  Tokens absorbed by cache: {s['total_tokens_cached']:,}")
     print(f"  Cost to re-extract all : ${s['estimated_cost_to_recompute_usd']:.4f}")

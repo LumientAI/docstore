@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 
 from docstore.cli import _resolve_store_for_path
 

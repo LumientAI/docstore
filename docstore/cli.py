@@ -26,7 +26,7 @@ from rich.table import Table
 load_dotenv()
 
 from .agents import orchestrator, differ as differ_agent
-from .schema import ExtractionSchema, SchemaDescriptor
+from .schema import SchemaDescriptor
 from .store import DocStore
 
 app = typer.Typer(
@@ -105,8 +105,7 @@ def extract(
 
     console.print(table)
 
-    hits  = sum(1 for r in results if r.cache_hit)
-    misses = len(results) - hits
+    hits = sum(1 for r in results if r.cache_hit)
     total_saved = sum(r.tokens_saved for r in results)
     rprint(
         f"\n[dim]Cache hits: {hits} / {len(results)} — "
@@ -176,8 +175,8 @@ def diff(
         raise typer.Exit(1)
 
     if not stored.schema_fields:
-        rprint(f"[red]Cached entry has no field metadata (predates field "
-               f"persistence). Re-extract this file first to migrate.[/red]")
+        rprint("[red]Cached entry has no field metadata (predates field "
+               "persistence). Re-extract this file first to migrate.[/red]")
         raise typer.Exit(1)
 
     descriptor = SchemaDescriptor(
