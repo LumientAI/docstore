@@ -11,9 +11,7 @@ Exposes four tools to any MCP-compatible client (Claude Desktop, etc.):
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
-from typing import cast
 
 from dotenv import load_dotenv
 from mcp.server import Server
@@ -24,17 +22,16 @@ load_dotenv()
 
 from docstore.agents import orchestrator, differ as differ_agent, parser as parser_agent
 from docstore.agents import extractor as extractor_agent
-from docstore.llm import DEFAULT_PROVIDER, LLMClient, ProviderName, create_llm_client, resolve_model
+from docstore.config import DOCSTORE_DIR, DOCSTORE_MODEL, DOCSTORE_PROVIDER
+from docstore.llm import LLMClient, create_llm_client, resolve_model
 from docstore.schema import SchemaDescriptor
 from docstore.store import DocStore
 
 
-STORE_DIR = os.environ.get("DOCSTORE_DIR", ".docstore")
-PROVIDER = cast(ProviderName, os.environ.get("DOCSTORE_PROVIDER", DEFAULT_PROVIDER))
-MODEL = resolve_model(PROVIDER, os.environ.get("DOCSTORE_MODEL"))
+MODEL = resolve_model(DOCSTORE_PROVIDER, DOCSTORE_MODEL)
 
 server = Server("docstore")
-store = DocStore(root=Path(STORE_DIR))
+store = DocStore(root=Path(DOCSTORE_DIR))
 
 # Lazy-init the configured client so importing this module doesn't require an
 # API key — only the tool handlers that actually make LLM calls do.
@@ -44,7 +41,7 @@ _client: LLMClient | None = None
 def _get_client() -> LLMClient:
     global _client
     if _client is None:
-        _client = create_llm_client(PROVIDER, MODEL)
+        _client = create_llm_client(DOCSTORE_PROVIDER, MODEL)
     return _client
 
 

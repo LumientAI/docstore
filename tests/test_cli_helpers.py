@@ -54,7 +54,7 @@ def test_create_llm_uses_env_model_when_model_is_omitted(monkeypatch):
         created.append((provider, model))
         return object()
 
-    monkeypatch.setattr(cli, "ENV_MODEL", "env-model")
+    monkeypatch.setattr(cli, "DOCSTORE_MODEL", "env-model")
     monkeypatch.setattr(cli, "create_llm_client", fake_create_llm_client)
 
     _, model = _create_llm("openai", None)
@@ -70,7 +70,7 @@ def test_create_llm_explicit_model_wins_over_env_model(monkeypatch):
         created.append((provider, model))
         return object()
 
-    monkeypatch.setattr(cli, "ENV_MODEL", "env-model")
+    monkeypatch.setattr(cli, "DOCSTORE_MODEL", "env-model")
     monkeypatch.setattr(cli, "create_llm_client", fake_create_llm_client)
 
     _, model = _create_llm("openai", "explicit-model")

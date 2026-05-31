@@ -15,7 +15,6 @@ Commands:
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Optional
 
@@ -28,7 +27,8 @@ from rich.table import Table
 load_dotenv()
 
 from docstore.agents import orchestrator, differ as differ_agent
-from docstore.llm import DEFAULT_PROVIDER, LLMClient, ProviderName, create_llm_client, resolve_model
+from docstore.config import DOCSTORE_MODEL, DOCSTORE_PROVIDER
+from docstore.llm import LLMClient, ProviderName, create_llm_client, resolve_model
 from docstore.schema import SchemaDescriptor
 from docstore.store import DocStore
 
@@ -38,9 +38,6 @@ app = typer.Typer(
     add_completion=False,
 )
 console = Console()
-
-ENV_PROVIDER = os.environ.get("DOCSTORE_PROVIDER", DEFAULT_PROVIDER)
-ENV_MODEL = os.environ.get("DOCSTORE_MODEL")
 
 
 def _get_store(store_dir: str) -> DocStore:
@@ -64,7 +61,7 @@ def _resolve_provider_model(provider: ProviderName, model: str | None = None) ->
 
 
 def _create_llm(provider: ProviderName, model: str | None = None) -> tuple[LLMClient, str]:
-    resolved_model = _resolve_provider_model(provider, model or ENV_MODEL)
+    resolved_model = _resolve_provider_model(provider, model or DOCSTORE_MODEL)
     return create_llm_client(provider, resolved_model), resolved_model
 
 
@@ -81,7 +78,7 @@ def extract(
     store_dir: str = typer.Option(".docstore", "--store",
         help="Store directory. Defaults to <path>/.docstore so the cache "
              "lives with the corpus."),
-    provider: ProviderName = typer.Option(ENV_PROVIDER, "--provider"),
+    provider: ProviderName = typer.Option(DOCSTORE_PROVIDER, "--provider"),
     model: str | None = typer.Option(None, "--model"),
 ):
     """Extract structured data from a file or directory."""
@@ -246,7 +243,7 @@ def diff(
     schema: str = typer.Option(..., "--schema", "-s"),
     store_dir: str = typer.Option(".docstore", "--store",
         help="Store directory. Defaults to <file_path's parent>/.docstore."),
-    provider: ProviderName = typer.Option(ENV_PROVIDER, "--provider"),
+    provider: ProviderName = typer.Option(DOCSTORE_PROVIDER, "--provider"),
     model: str | None = typer.Option(None, "--model"),
 ):
     """Compare current file against its stored extraction."""
@@ -423,7 +420,7 @@ def shell(
     path: Path = typer.Argument(..., help="File or directory to process"),
     store_dir: str = typer.Option(".docstore", "--store",
         help="Store directory. Defaults to <path>/.docstore."),
-    provider: ProviderName = typer.Option(ENV_PROVIDER, "--provider"),
+    provider: ProviderName = typer.Option(DOCSTORE_PROVIDER, "--provider"),
     model: str | None = typer.Option(None, "--model"),
 ):
     """Interactive shell — describe fields in plain language."""
