@@ -41,6 +41,18 @@ def _get_store(store_dir: str) -> DocStore:
     return DocStore(root=Path(store_dir))
 
 
+def _resolve_store_for_path(path: Path, store_dir: str) -> str:
+    """Co-locate the cache with the corpus when --store is at its default.
+
+    Matches the benchmark's `directory/.docstore` convention so the cache
+    travels with the data. If the user passed --store explicitly, honor that.
+    """
+    if store_dir != ".docstore":
+        return store_dir
+    base = path if path.is_dir() else path.parent
+    return str(base / ".docstore")
+
+
 # ── extract ────────────────────────────────────────────────────────────────
 
 @app.command()
@@ -51,13 +63,15 @@ def extract(
     validate: bool = typer.Option(False, "--validate",
         help="Run a second LLM call per file to validate extracted data. "
              "Doubles cold-extract cost; off by default."),
-    store_dir: str = typer.Option(".docstore", "--store", help="Store directory"),
+    store_dir: str = typer.Option(".docstore", "--store",
+        help="Store directory. Defaults to <path>/.docstore so the cache "
+             "lives with the corpus."),
     model: str = typer.Option("claude-haiku-4-5-20251001", "--model"),
 ):
     """Extract structured data from a file or directory."""
     import anthropic
     client = anthropic.Anthropic()
-    store = _get_store(store_dir)
+    store = _get_store(_resolve_store_for_path(path, store_dir))
 
     # Resolve schema descriptor
     descriptor = _resolve_descriptor(store, schema, ask, client)
@@ -145,13 +159,14 @@ def query(
 def diff(
     file_path: Path = typer.Argument(..., help="File to diff against stored version"),
     schema: str = typer.Option(..., "--schema", "-s"),
-    store_dir: str = typer.Option(".docstore", "--store"),
+    store_dir: str = typer.Option(".docstore", "--store",
+        help="Store directory. Defaults to <file_path's parent>/.docstore."),
     model: str = typer.Option("claude-haiku-4-5-20251001", "--model"),
 ):
     """Compare current file against its stored extraction."""
     import anthropic
     client = anthropic.Anthropic()
-    store = _get_store(store_dir)
+    store = _get_store(_resolve_store_for_path(file_path, store_dir))
 
     # Find the previous extraction by file path (not by current file hash —
     # the file may have changed, which is the whole point of diff).
@@ -294,13 +309,14 @@ def clean(
 @app.command()
 def shell(
     path: Path = typer.Argument(..., help="File or directory to process"),
-    store_dir: str = typer.Option(".docstore", "--store"),
+    store_dir: str = typer.Option(".docstore", "--store",
+        help="Store directory. Defaults to <path>/.docstore."),
     model: str = typer.Option("claude-haiku-4-5-20251001", "--model"),
 ):
     """Interactive shell — describe fields in plain language."""
     import anthropic
     client = anthropic.Anthropic()
-    store = _get_store(store_dir)
+    store = _get_store(_resolve_store_for_path(path, store_dir))
 
     existing = store.list_schemas()
     if existing:
