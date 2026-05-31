@@ -1,5 +1,11 @@
 # docstore
 
+[![tests](https://github.com/LumientAI/docstore/actions/workflows/test.yml/badge.svg)](https://github.com/LumientAI/docstore/actions/workflows/test.yml)
+[![lint](https://github.com/LumientAI/docstore/actions/workflows/lint.yml/badge.svg)](https://github.com/LumientAI/docstore/actions/workflows/lint.yml)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11+-blue)](pyproject.toml)
+
 **dbt for unstructured data. Extract once, query forever.**
 
 Most tools re-read your documents every time you ask a question. docstore extracts the fields you care about once, caches them locally, and answers subsequent queries from the cache — no LLM calls, no re-reading, no waiting.
