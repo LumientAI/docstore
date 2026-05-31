@@ -5,16 +5,19 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "docstore"
 dynamic = ["version"]
-description = "dbt for unstructured data — extract once, query forever"
+description = "Persistent cache for LLM document extraction: extract once, query forever. CLI, Python API, and MCP server."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-keywords = ["llm", "documents", "extraction", "cache", "mcp"]
+keywords = ["llm", "anthropic", "claude", "documents", "extraction", "cache", "mcp", "rag"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
     "anthropic>=0.25.0",
@@ -32,6 +35,17 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.4"]
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+]
+
+[project.urls]
+Homepage = "https://docstore.lumient.ai"
+Documentation = "https://docstore.lumient.ai"
+Repository = "https://github.com/LumientAI/docstore"
+Issues = "https://github.com/LumientAI/docstore/issues"
+Changelog = "https://github.com/LumientAI/docstore/blob/master/CHANGELOG.md"
 
 [project.scripts]
 docstore = "docstore.cli:app"

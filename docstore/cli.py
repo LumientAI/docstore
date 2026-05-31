@@ -4,6 +4,7 @@ docstore CLI
 Commands:
   extract   Run extraction pipeline on a file or directory
   query     Query stored results without LLM calls
+  ask       Ask a natural-language question
   diff      Compare current file against stored version
   schemas   List all schemas in the store
   stats     Show cache stats and token savings
@@ -164,6 +165,77 @@ def query(
             row = [Path(r.file_path).name] + [_fmt_cell(r.data.get(k)) for k in keys]
             table.add_row(*row)
         console.print(table)
+
+
+# ── ask ────────────────────────────────────────────────────────────────────
+
+@app.command()
+def ask(
+    question: str = typer.Argument(..., help='Natural-language question, e.g. "which invoices are unpaid?"'),
+    schema_name: str = typer.Option(..., "--schema", "-s", help="Schema to query against"),
+    store_dir: str = typer.Option(".docstore", "--store"),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table | json"),
+    model: str = typer.Option("claude-haiku-4-5-20251001", "--model"),
+):
+    """Ask a question in natural language. One LLM call compiles it to a
+    filter; results come from cache with zero further LLM calls."""
+    import anthropic
+    from .agents.compiler import compile_filter, filter_to_string
+    from .store import evaluate_filter
+
+    client = anthropic.Anthropic()
+    store = _get_store(store_dir)
+
+    # Hydrate the schema's fields from any cached entry (compiler needs the
+    # exact field names to anchor the LLM and avoid hallucinated columns).
+    existing = store.list_schemas()
+    if schema_name not in existing:
+        rprint(f"[red]Schema '{schema_name}' not found. Available: "
+               f"{list(existing.keys())}[/red]")
+        raise typer.Exit(1)
+    version = existing[schema_name][-1]
+    sample = next(store.root.glob(f"*__{schema_name}__{version}.json"), None)
+    if sample is None:
+        rprint(f"[red]No cached entries for '{schema_name}'.[/red]")
+        raise typer.Exit(1)
+    with open(sample) as f:
+        sample_data = json.load(f)
+    fields = sample_data.get("schema_fields", {})
+    if not fields:
+        rprint(f"[red]Schema '{schema_name}' has no field metadata (predates "
+               f"field persistence). Re-extract first.[/red]")
+        raise typer.Exit(1)
+
+    # Compile English → filter AST
+    ast = compile_filter(question, fields, client, model)
+
+    if "error" in ast:
+        rprint(f"[red]Could not compile question: {ast['error']}[/red]")
+        rprint(f"[dim]Available fields: {list(fields.keys())}[/dim]")
+        raise typer.Exit(1)
+
+    rprint(f"[dim]Filter: {filter_to_string(ast)}[/dim]\n")
+
+    # Evaluate against cache — zero LLM calls beyond the compile
+    results = store.query(schema_name, lambda r: evaluate_filter(ast, r.data))
+
+    if not results:
+        rprint("[yellow]No matching records.[/yellow]")
+        return
+
+    if output == "json":
+        rprint(json.dumps([r.data for r in results], indent=2))
+        return
+
+    keys = list(results[0].data.keys())
+    table = Table(title=f"{schema_name} — {len(results)} records")
+    table.add_column("file", style="dim")
+    for k in keys:
+        table.add_column(k)
+    for r in results:
+        row = [Path(r.file_path).name] + [_fmt_cell(r.data.get(k)) for k in keys]
+        table.add_row(*row)
+    console.print(table)
 
 
 # ── diff ───────────────────────────────────────────────────────────────────

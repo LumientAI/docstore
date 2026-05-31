@@ -21,3 +21,5 @@ dist/
 
 *.zip
 *.pdf
+# MkDocs build output
+site/
