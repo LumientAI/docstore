@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=68", "setuptools-scm>=8", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "docstore"
-version = "0.1.0"
+dynamic = ["version"]
 description = "dbt for unstructured data — extract once, query forever"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -39,6 +39,9 @@ docstore-server = "docstore.server:main"
 [tool.setuptools.packages.find]
 include = ["docstore*"]
 exclude = ["tests*", "examples*", "scripts*", "sample_invoices*"]
+
+[tool.setuptools_scm]
+fallback_version = "0.0.0+unknown"
 
 [tool.ruff]
 line-length = 100
