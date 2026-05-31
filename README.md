@@ -134,15 +134,15 @@ Claude can then call `extract`, `query`, `diff`, and `stats` directly.
 ## How it works
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────────────┐
 │                         docstore pipeline                        │
 │                                                                  │
 │  document.pdf                                                    │
 │       │                                                          │
 │       ▼                                                          │
-│  ┌─────────┐     cache hit?  ──────────────────────────────┐    │
-│  │  Parser  │  ─────────────►  .docstore/{hash}.json        │    │
-│  └─────────┘     (no LLM)   ──────────────────────────────┘    │
+│  ┌─────────┐     cache hit?   ──────────────────────────────┐    │
+│  │  Parser │  ─────────────►  .docstore/{hash}.json         │    │
+│  └─────────┘     (no LLM)     ──────────────────────────────┘    │
 │       │                                                          │
 │       │ cache miss                                               │
 │       ▼                                                          │
@@ -157,7 +157,7 @@ Claude can then call `extract`, `query`, `diff`, and `stats` directly.
 │       │                                                          │
 │       ▼                                                          │
 │  .docstore/{file_hash}__{schema}__{version}.json                 │
-└─────────────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 **Cache key:** `sha256(file_bytes)` + `schema_name` + `sha256(schema_fields)`
