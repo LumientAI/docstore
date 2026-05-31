@@ -5,7 +5,8 @@ from __future__ import annotations
 
 from typer.testing import CliRunner
 
-from docstore.cli import _resolve_provider_model, _resolve_store_for_path, app
+from docstore import cli
+from docstore.cli import _create_llm, _resolve_provider_model, _resolve_store_for_path, app
 
 
 def test_resolve_store_derives_from_directory(tmp_path):
@@ -44,3 +45,35 @@ def test_invalid_provider_is_rejected():
     result = CliRunner().invoke(app, ["extract", "missing.txt", "--provider", "bogus"])
 
     assert result.exit_code != 0
+
+
+def test_create_llm_uses_env_model_when_model_is_omitted(monkeypatch):
+    created = []
+
+    def fake_create_llm_client(provider, model):
+        created.append((provider, model))
+        return object()
+
+    monkeypatch.setattr(cli, "ENV_MODEL", "env-model")
+    monkeypatch.setattr(cli, "create_llm_client", fake_create_llm_client)
+
+    _, model = _create_llm("openai", None)
+
+    assert model == "env-model"
+    assert created == [("openai", "env-model")]
+
+
+def test_create_llm_explicit_model_wins_over_env_model(monkeypatch):
+    created = []
+
+    def fake_create_llm_client(provider, model):
+        created.append((provider, model))
+        return object()
+
+    monkeypatch.setattr(cli, "ENV_MODEL", "env-model")
+    monkeypatch.setattr(cli, "create_llm_client", fake_create_llm_client)
+
+    _, model = _create_llm("openai", "explicit-model")
+
+    assert model == "explicit-model"
+    assert created == [("openai", "explicit-model")]

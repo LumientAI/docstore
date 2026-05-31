@@ -14,6 +14,7 @@ Commands:
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -37,6 +38,9 @@ app = typer.Typer(
 )
 console = Console()
 
+ENV_PROVIDER = os.environ.get("DOCSTORE_PROVIDER", DEFAULT_PROVIDER)
+ENV_MODEL = os.environ.get("DOCSTORE_MODEL")
+
 
 def _get_store(store_dir: str) -> DocStore:
     return DocStore(root=Path(store_dir))
@@ -59,7 +63,7 @@ def _resolve_provider_model(provider: ProviderName, model: str | None = None) ->
 
 
 def _create_llm(provider: ProviderName, model: str | None = None) -> tuple[LLMClient, str]:
-    resolved_model = _resolve_provider_model(provider, model)
+    resolved_model = _resolve_provider_model(provider, model or ENV_MODEL)
     return create_llm_client(provider, resolved_model), resolved_model
 
 
@@ -76,7 +80,7 @@ def extract(
     store_dir: str = typer.Option(".docstore", "--store",
         help="Store directory. Defaults to <path>/.docstore so the cache "
              "lives with the corpus."),
-    provider: ProviderName = typer.Option(DEFAULT_PROVIDER, "--provider"),
+    provider: ProviderName = typer.Option(ENV_PROVIDER, "--provider"),
     model: str | None = typer.Option(None, "--model"),
 ):
     """Extract structured data from a file or directory."""
@@ -170,7 +174,7 @@ def diff(
     schema: str = typer.Option(..., "--schema", "-s"),
     store_dir: str = typer.Option(".docstore", "--store",
         help="Store directory. Defaults to <file_path's parent>/.docstore."),
-    provider: ProviderName = typer.Option(DEFAULT_PROVIDER, "--provider"),
+    provider: ProviderName = typer.Option(ENV_PROVIDER, "--provider"),
     model: str | None = typer.Option(None, "--model"),
 ):
     """Compare current file against its stored extraction."""
@@ -320,7 +324,7 @@ def shell(
     path: Path = typer.Argument(..., help="File or directory to process"),
     store_dir: str = typer.Option(".docstore", "--store",
         help="Store directory. Defaults to <path>/.docstore."),
-    provider: ProviderName = typer.Option(DEFAULT_PROVIDER, "--provider"),
+    provider: ProviderName = typer.Option(ENV_PROVIDER, "--provider"),
     model: str | None = typer.Option(None, "--model"),
 ):
     """Interactive shell — describe fields in plain language."""
