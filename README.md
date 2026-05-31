@@ -55,6 +55,8 @@ benchmark is intended to show cache behavior, not provider quality.
 pip install lumient-docstore
 ```
 
+All four LLM providers (Anthropic, OpenAI, Groq, Gemini) work out of the box - pick one at runtime via `--provider`.
+
 Or from source:
 
 ```bash

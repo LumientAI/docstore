@@ -4,9 +4,14 @@ Every `docstore` command, its flags, and a concrete example. Run `docstore <comm
 
 ## Conventions
 
-- **`--store`** controls the cache directory. Commands that take a path argument (`extract`, `diff`, `shell`) default to `<path>/.docstore` so the cache lives with the corpus. Path-less commands (`query`, `schemas`, `stats`, `clean`, `ask`) default to `./.docstore` in the current directory — pass `--store` explicitly when querying a corpus directory.
+- **`--store`** controls the cache directory. Commands that take a path argument (`extract`, `diff`, `shell`) default to `<path>/.docstore` so the cache lives with the corpus. Path-less commands (`query`, `schemas`, `stats`, `clean`, `ask`) default to `./.docstore` in the current directory - pass `--store` explicitly when querying a corpus directory.
 - **`--schema`** identifies a schema by name. If the name doesn't exist in the store and `--ask` is set (or no schema is given), the orchestrator elicits one from your description.
-- **`--model`** defaults to `claude-haiku-4-5-20251001`. Override for any command that makes LLM calls.
+- **`--provider`** picks the LLM provider - `anthropic` (default), `openai`, `groq`, or `gemini`. Falls back to the `DOCSTORE_PROVIDER` env var if unset. All four providers are installed by default; you just need the corresponding API key in your environment.
+- **`--model`** picks the model within that provider. Each provider has a sensible default (`claude-haiku-4-5-20251001`, `gpt-5.4-mini`, `llama-3.3-70b-versatile`, `gemini-2.5-flash`). Falls back to `DOCSTORE_MODEL` if unset.
+
+Each provider reads its own API key from the environment: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`.
+
+**Caveat - caches don't cross providers.** Schema elicitation is provider-deterministic but not cross-provider-deterministic, so the same English description compiled by different providers may produce different `schema_version` hashes. Treat caches as per-provider.
 
 ---
 
@@ -24,10 +29,11 @@ docstore extract <path> [OPTIONS]
 | `--ask` | `false` | Describe fields interactively even if a name is given. |
 | `--validate` | `false` | Add a second LLM call per file to validate plausibility. Doubles cold-extract cost. |
 | `--store` | `<path>/.docstore` | Cache directory. |
-| `--model` | `claude-haiku-4-5-20251001` | Model used by the extractor (and validator, if `--validate`). |
+| `--provider` | `anthropic` (or `$DOCSTORE_PROVIDER`) | `anthropic` / `openai` / `groq` / `gemini`. |
+| `--model` | provider default | Model within the chosen provider. |
 
 ```bash
-# First extraction — define a schema in plain English
+# First extraction - define a schema in plain English
 docstore extract ./invoices/ --schema invoice_schema --ask
 
 # Incremental: reuse the stored schema, only new files hit the LLM
@@ -35,6 +41,10 @@ docstore extract ./invoices/ --schema invoice_schema
 
 # With validation (opt-in, doubles cost)
 docstore extract ./invoices/ --schema invoice_schema --validate
+
+# Use a different provider (set the matching API key in .env first)
+docstore extract ./invoices/ --schema invoice_schema --provider openai
+docstore extract ./invoices/ --schema invoice_schema --provider groq --model llama-3.3-70b-versatile
 ```
 
 ---
@@ -150,7 +160,7 @@ docstore stats [--store DIR]
 | Stat | Meaning |
 |---|---|
 | `Total entries` | Count of cached `*.json` files. |
-| `Tokens absorbed by cache` | Sum of `tokens_used` across all entries — the LLM work the cache holds. |
+| `Tokens absorbed by cache` | Sum of `tokens_used` across all entries - the LLM work the cache holds. |
 | `Cost to re-extract all` | What you'd pay to redo everything at current Haiku 4.5 pricing. |
 
 ---
@@ -193,7 +203,7 @@ docstore sync [OPTIONS]
 | `--store` | `.docstore` | Cache directory. |
 
 ```bash
-# Dry run — see what's stale without deleting anything
+# Dry run - see what's stale without deleting anything
 docstore sync --store ./invoices/.docstore
 
 # Remove stale entries
@@ -230,7 +240,7 @@ The orchestrator normalises your description, shows the resulting schema, and pr
 
 | Variable | Default | Used by |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | — | All commands that make LLM calls. |
+| `ANTHROPIC_API_KEY` | - | All commands that make LLM calls. |
 | `DOCSTORE_DIR` | `.docstore` | MCP server's default store directory. |
 | `DOCSTORE_MODEL` | `claude-haiku-4-5-20251001` | MCP server's default model. |
 

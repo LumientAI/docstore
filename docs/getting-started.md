@@ -57,7 +57,7 @@ What happens under the hood:
 2. Each `.txt` file is parsed (no LLM) and sent to the extractor (one Haiku call per file).
 3. Results land at `sample_invoices/.docstore/{file_hash}__invoice_schema__{version}.json`.
 
-For 30 invoices this takes ~110s and costs ~$0.04. **Re-running the same command** is instant — every file is a cache hit.
+For 30 invoices this takes ~110s and costs ~$0.04. **Re-running the same command** is instant - every file is a cache hit.
 
 ## Query the cache without LLM calls
 
@@ -65,7 +65,7 @@ For 30 invoices this takes ~110s and costs ~$0.04. **Re-running the same command
 docstore query invoice_schema --filter "is_paid=false" --store sample_invoices/.docstore
 ```
 
-You should see roughly 10 unpaid invoices in a clean table. **Zero LLM calls** — every result comes from the cached JSON.
+You should see roughly 10 unpaid invoices in a clean table. **Zero LLM calls** - every result comes from the cached JSON.
 
 ## Ask in natural language
 
@@ -78,7 +78,7 @@ One LLM call compiles your question into a filter, then the filter runs against 
 
 ```
 Filter: is_paid = False AND total_amount > 5000
-invoice_schema — 1 records
+invoice_schema - 1 records
 | file | vendor_name | total_amount | currency | ... |
 ```
 
@@ -102,7 +102,7 @@ docstore schemas --store sample_invoices/.docstore
 
 ## Sync stale entries
 
-If you move or delete source files after extracting them, their cache entries become stale — they'll still appear in `query` results even though the files are gone. Remove them with:
+If you move or delete source files after extracting them, their cache entries become stale - they'll still appear in `query` results even though the files are gone. Remove them with:
 
 ```bash
 docstore sync --store sample_invoices/.docstore        # dry run, reports stale paths
@@ -160,9 +160,9 @@ Restart Claude Desktop. The `docstore` server will appear in the connected MCP s
 ### Notes
 
 - **`command`** must resolve via the shell `PATH`. `pip install docstore` puts `docstore-server` on your path; if Claude Desktop can't find it, use the absolute path (run `which docstore-server` to get it).
-- **`DOCSTORE_DIR`** must be absolute — Claude Desktop launches the server from its own working directory, not yours.
+- **`DOCSTORE_DIR`** must be absolute - Claude Desktop launches the server from its own working directory, not yours.
 - **`ANTHROPIC_API_KEY`** can also come from `.env` in `DOCSTORE_DIR`'s parent, but inlining it in the config is simpler.
-- **Lazy auth**: the server doesn't construct an Anthropic client at startup, so an invalid key won't prevent Claude Desktop from connecting — failures only surface when you actually call `extract` or `diff`.
+- **Lazy auth**: the server doesn't construct an Anthropic client at startup, so an invalid key won't prevent Claude Desktop from connecting - failures only surface when you actually call `extract` or `diff`.
 
 ### Test it without Claude Desktop
 
@@ -193,4 +193,4 @@ If `stats` returns your cache summary, the server is working.
 ## Next steps
 
 - The full [CLI reference](cli-reference.md) covers every command and flag.
-- The Python API mirrors the CLI — `from docstore import DocStore, ExtractionSchema`.
+- The Python API mirrors the CLI - `from docstore import DocStore, ExtractionSchema`.

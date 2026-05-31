@@ -15,7 +15,9 @@ Initial public version.
   Choose between Anthropic (default), OpenAI, Groq, and Gemini at runtime —
   Groq and Gemini are driven through their OpenAI-compatible endpoints, so the
   three non-Anthropic providers share a single adapter (`OpenAIChatLLM`).
-  Install the OpenAI client separately: `pip install "lumient-docstore[openai]"`.
+  All four providers are installed by default; pick one at runtime via
+  `--provider` (or the `DOCSTORE_PROVIDER` env var). Each reads its own
+  API key from the environment.
 - **`docstore sync` command** — finds cache entries whose source file no longer
   exists on disk. `--yes` removes them; without it, the command reports stale
   entries without deleting.

@@ -82,6 +82,14 @@ docstore/
   Without it, the same English input produces different field name normalisations
   across runs, which produces different version hashes, which orphans cached
   entries by name lookup.
+- **Schema elicitation is provider-deterministic, not cross-provider-deterministic.**
+  Anthropic and OpenAI (and Groq/Gemini) may normalise the same English description
+  differently (`is_paid` vs `paid`, key ordering, type choices). Even with
+  `temperature=0` everywhere, the resulting `SchemaDescriptor.version` hashes can
+  diverge between providers — caches are effectively per-provider, not shared.
+  This is a consequence of the multi-provider design, not a bug. If you need a
+  unified cache across providers, normalise the elicited fields downstream of
+  `elicit_schema` before they hit the version hash.
 - **MCP server lazy-inits the Anthropic client.** `_get_client()` instead of a
   module-level instance. Importing the module shouldn't crash without an API key
   — embedders rely on this.
