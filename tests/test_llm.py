@@ -87,6 +87,26 @@ def test_openai_llm_normalizes_response():
     }
 
 
+def test_anthropic_factory_returns_anthropic_llm(monkeypatch):
+    calls = []
+
+    def fake_anthropic(**kwargs):
+        calls.append(kwargs)
+        return FakeAnthropicClient()
+
+    import anthropic
+
+    monkeypatch.setattr(anthropic, "Anthropic", fake_anthropic)
+
+    client = create_llm_client("anthropic")
+
+    assert isinstance(client, AnthropicLLM)
+    assert client.model == "claude-haiku-4-5-20251001"
+    # The factory should construct the SDK client with no explicit kwargs —
+    # it picks up ANTHROPIC_API_KEY from the environment.
+    assert calls == [{}]
+
+
 def test_groq_uses_openai_compatible_client(monkeypatch):
     calls = []
 

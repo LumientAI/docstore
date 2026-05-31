@@ -552,7 +552,6 @@ dependencies = [
     { name = "anthropic" },
     { name = "httpx" },
     { name = "mcp" },
-    { name = "openai" },
     { name = "pydantic" },
     { name = "pypdf" },
     { name = "python-docx" },
@@ -563,6 +562,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+all = [
+    { name = "openai" },
+]
 dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -572,15 +574,19 @@ docs = [
     { name = "mkdocs" },
     { name = "mkdocs-material" },
 ]
+openai = [
+    { name = "openai" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=0.25.0" },
     { name = "httpx", specifier = ">=0.27" },
+    { name = "lumient-docstore", extras = ["openai"], marker = "extra == 'all'" },
     { name = "mcp", specifier = ">=1.0" },
     { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6" },
     { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.5" },
-    { name = "openai", specifier = ">=1.0" },
+    { name = "openai", marker = "extra == 'openai'", specifier = ">=1.0" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pypdf", specifier = ">=4.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
