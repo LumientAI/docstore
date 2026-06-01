@@ -5,6 +5,12 @@ All notable changes are documented here. Format loosely follows
 [setuptools-scm](https://github.com/pypa/setuptools-scm) for versioning, so
 release numbers come from git tags.
 
+## [Unreleased]
+
+### Added
+
+- **`docstore export`** — dump all cached extractions for a schema to CSV, JSON, or SQLite with `--format` and `--output` flags. Zero LLM calls; uses stdlib only.
+
 ## [0.1.0] - 2026-05-31
 
 Initial public release.
