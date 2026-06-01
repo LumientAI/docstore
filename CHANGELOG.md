@@ -5,6 +5,12 @@ All notable changes are documented here. Format loosely follows
 [setuptools-scm](https://github.com/pypa/setuptools-scm) for versioning, so
 release numbers come from git tags.
 
+## [Unreleased]
+
+### Added
+
+- **`--workers` flag on `docstore extract`** — parallel document extraction via `ThreadPoolExecutor`. Sequential behaviour (`--workers 1`) is unchanged.
+
 ## [0.1.0] - 2026-05-31
 
 Initial public release.

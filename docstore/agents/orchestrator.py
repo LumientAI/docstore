@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -161,12 +162,16 @@ def run_directory(
     glob: str = "*",
     progress: bool = True,
     validate: bool = False,
+    workers: int = 1,
 ) -> list[ExtractionResult]:
     """
     Run the pipeline over all supported files in a directory.
 
     progress: show a tqdm bar with running cache hit/miss counts. Pass False
     when embedding docstore in a non-interactive context.
+
+    workers: number of parallel threads. When > 1, uses ThreadPoolExecutor.
+    Sequential path (workers=1) is unchanged.
     """
     supported = {".pdf", ".docx", ".txt", ".md", ".csv", ".html", ".json"}
     files = [
@@ -176,14 +181,35 @@ def run_directory(
 
     results = []
     hits = misses = 0
-    bar = tqdm(files, desc=descriptor.name, unit="doc", disable=not progress)
-    for f in bar:
-        result = run_pipeline(f, descriptor, store, client, model, validate=validate)
-        results.append(result)
-        if result.cache_hit:
-            hits += 1
-        else:
-            misses += 1
-        bar.set_postfix(hit=hits, miss=misses)
+
+    if workers > 1:
+        bar = tqdm(total=len(files), desc=descriptor.name, unit="doc", disable=not progress)
+        future_to_file = {}
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            for f in files:
+                future = executor.submit(
+                    run_pipeline, f, descriptor, store, client, model, validate
+                )
+                future_to_file[future] = f
+            for future in as_completed(future_to_file):
+                result = future.result()
+                results.append(result)
+                if result.cache_hit:
+                    hits += 1
+                else:
+                    misses += 1
+                bar.update(1)
+                bar.set_postfix(hit=hits, miss=misses)
+        bar.close()
+    else:
+        bar = tqdm(files, desc=descriptor.name, unit="doc", disable=not progress)
+        for f in bar:
+            result = run_pipeline(f, descriptor, store, client, model, validate=validate)
+            results.append(result)
+            if result.cache_hit:
+                hits += 1
+            else:
+                misses += 1
+            bar.set_postfix(hit=hits, miss=misses)
 
     return results
