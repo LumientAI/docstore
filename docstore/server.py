@@ -224,7 +224,8 @@ async def _handle_query(args: dict) -> list[TextContent]:
             ast = parse_filter(filter_expr)
         except ValueError as e:
             return [TextContent(type="text", text=f"Invalid filter: {e}")]
-        filter_fn = lambda result: evaluate_filter(ast, result.data)
+        def filter_fn(result):
+            return evaluate_filter(ast, result.data)
     else:
         filter_fn = None
 
