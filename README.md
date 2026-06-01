@@ -40,12 +40,28 @@ synthetic invoice corpus, writes `ground_truth.jsonl`, then measures:
 - `cached_query`: query stored JSON locally, with no parser or LLM calls
 
 ```bash
+# Synthetic invoices (auto-generated)
 uv run python scripts/benchmark.py /tmp/docstore-benchmark --count 30
 uv run python scripts/benchmark.py /tmp/docstore-benchmark --count 30 --output json
+
+# Any existing folder of documents
+uv run python scripts/benchmark.py ./my-documents \
+  --no-generate --schema my_schema --ask --glob "*.pdf"
 ```
 
 Use `--provider` and `--model` to run it against a specific vendor. The
 benchmark is intended to show cache behavior, not provider quality.
+
+A contract-specific corpus generator is also included for demo purposes:
+
+```bash
+# Generate 30 synthetic vendor contract PDFs
+uv run --extra scripts python scripts/generate_pdf_contracts.py ./sample_contracts
+
+# Then benchmark against them
+uv run python scripts/benchmark.py ./sample_contracts \
+  --no-generate --schema contracts --ask --glob "contract_*.pdf"
+```
 
 ---
 

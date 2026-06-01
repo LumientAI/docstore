@@ -34,7 +34,6 @@ from docstore.agents import orchestrator, parser as parser_agent
 from docstore.llm import DEFAULT_PROVIDER, ProviderName, create_llm_client, resolve_model
 from docstore.schema import ExtractionResult, SchemaDescriptor
 from docstore.store import DocStore
-from scripts.generate_txt_invoices import generate_corpus
 
 
 console = Console()
@@ -55,7 +54,7 @@ def benchmark_schema() -> SchemaDescriptor:
     return SchemaDescriptor(name=BENCHMARK_SCHEMA_NAME, fields=BENCHMARK_SCHEMA_FIELDS)
 
 
-def baseline_tokens(directory: Path, glob: str = "*.txt") -> int:
+def baseline_tokens(directory: Path, glob: str = "*") -> int:
     total = 0
     for f in directory.glob(glob):
         if f.is_file() and f.suffix.lower() in SUPPORTED_SUFFIXES:
@@ -115,6 +114,7 @@ def run_extract_scenario(
     client,
     model: str,
     usd_per_mtok: float,
+    glob: str = "*",
 ) -> dict[str, Any]:
     t0 = time.perf_counter()
     results = orchestrator.run_directory(
@@ -123,8 +123,8 @@ def run_extract_scenario(
         store,
         client,
         model,
-        glob="invoice_*.txt",
-        progress=False,
+        glob=glob,
+        progress=True,
     )
     return summarize_extract(scenario, results, time.perf_counter() - t0, usd_per_mtok)
 
@@ -134,14 +134,19 @@ def run_cached_query_scenario(
     store: DocStore,
 ) -> dict[str, Any]:
     t0 = time.perf_counter()
-    unpaid = store.query(descriptor.name, lambda r: r.data.get("paid") is False)
-    return summarize_query("cached_query", len(unpaid), time.perf_counter() - t0)
+    results = store.query(descriptor.name)
+    return summarize_query("cached_query", len(results), time.perf_counter() - t0)
 
 
-def prepare_corpus(directory: Path, count: int, seed: int, generate: bool) -> int:
+def prepare_corpus(directory: Path, count: int, seed: int, generate: bool, glob: str = "invoice_*.txt") -> int:
     if generate:
+        from scripts.generate_txt_invoices import generate_corpus
         return len(generate_corpus(directory, count=count, seed=seed))
-    return len(list(directory.glob("invoice_*.txt")))
+    files = [
+        f for f in directory.glob(glob)
+        if f.is_file() and f.suffix.lower() in SUPPORTED_SUFFIXES
+    ]
+    return len(files)
 
 
 def run_benchmark(
@@ -154,22 +159,29 @@ def run_benchmark(
     generate: bool = True,
     fresh: bool = True,
     usd_per_mtok: float = 1.0,
+    schema_name: str | None = None,
+    schema_fields: dict[str, str] | None = None,
+    glob: str = "invoice_*.txt",
 ) -> dict[str, Any]:
-    document_count = prepare_corpus(directory, count, seed, generate)
+    document_count = prepare_corpus(directory, count, seed, generate, glob=glob)
     store_dir = directory / ".docstore"
     if fresh and store_dir.exists():
         shutil.rmtree(store_dir)
 
-    descriptor = benchmark_schema()
+    if schema_name and schema_fields:
+        descriptor = SchemaDescriptor(name=schema_name, fields=schema_fields)
+    else:
+        descriptor = benchmark_schema()
+
     store = DocStore(root=store_dir)
     model = resolve_model(provider, model)
     client = create_llm_client(provider, model)
 
     cold = run_extract_scenario(
-        "cold_extract", directory, descriptor, store, client, model, usd_per_mtok
+        "cold_extract", directory, descriptor, store, client, model, usd_per_mtok, glob=glob
     )
     warm = run_extract_scenario(
-        "warm_extract", directory, descriptor, store, client, model, usd_per_mtok
+        "warm_extract", directory, descriptor, store, client, model, usd_per_mtok, glob=glob
     )
     query = run_cached_query_scenario(descriptor, store)
 
@@ -178,7 +190,6 @@ def run_benchmark(
             "directory": str(directory),
             "documents": document_count,
             "ground_truth": str(directory / "ground_truth.jsonl"),
-            "baseline_tokens_per_full_read": baseline_tokens(directory),
         },
         "schema": {
             "name": descriptor.name,
@@ -199,9 +210,11 @@ def print_table(report: dict[str, Any]) -> None:
     llm = report["llm"]
     rprint(
         f"\n[bold]docstore benchmark[/bold] "
-        f"({corpus['documents']} synthetic invoices, {llm['provider']}:{llm['model']})"
+        f"({corpus['documents']} documents, {llm['provider']}:{llm['model']})"
     )
-    rprint(f"[dim]Baseline full-read tokens: {corpus['baseline_tokens_per_full_read']:,}[/dim]\n")
+    if "baseline_tokens_per_full_read" in corpus:
+        rprint(f"[dim]Baseline full-read tokens: {corpus['baseline_tokens_per_full_read']:,}[/dim]")
+    rprint("")
 
     table = Table(title="Cache Benchmark")
     table.add_column("Scenario")
@@ -235,8 +248,13 @@ def main() -> None:
     parser.add_argument("directory", type=Path)
     parser.add_argument("--count", type=int, default=30)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--no-generate", action="store_true", help="Use existing invoice_*.txt files")
+    parser.add_argument("--no-generate", action="store_true",
+                        help="Skip corpus generation — use existing files in the directory")
     parser.add_argument("--keep-cache", action="store_true", help="Do not delete <directory>/.docstore")
+    parser.add_argument("--schema", default=None, help="Schema name (default: invoice_benchmark)")
+    parser.add_argument("--ask", action="store_true", help="Describe schema fields interactively")
+    parser.add_argument("--glob", default=None,
+                        help="File glob pattern (default: invoice_*.txt, or * when --no-generate is set)")
     parser.add_argument(
         "--provider",
         choices=["anthropic", "openai", "groq", "gemini"],
@@ -247,6 +265,23 @@ def main() -> None:
     parser.add_argument("--output", choices=["table", "json"], default="table")
     args = parser.parse_args()
 
+    # Resolve glob: explicit > infer from --no-generate > invoice default
+    glob = args.glob or ("*" if args.no_generate else "invoice_*.txt")
+
+    # Resolve schema
+    schema_name = args.schema
+    schema_fields: dict[str, str] | None = None
+    if args.ask or (schema_name and schema_name != BENCHMARK_SCHEMA_NAME):
+        if not schema_name:
+            schema_name = input("Schema name: ").strip() or "benchmark_schema"
+        description = input(f"Describe the fields to extract from {args.directory.name}: ").strip()
+        client = create_llm_client(args.provider, args.model)
+        store = DocStore(root=args.directory / ".docstore")
+        from docstore.agents.orchestrator import elicit_schema
+        descriptor = elicit_schema(description, store.list_schemas(), client=client, name=schema_name)
+        schema_name = descriptor.name
+        schema_fields = dict(descriptor.fields)
+
     report = run_benchmark(
         args.directory,
         count=args.count,
@@ -256,6 +291,9 @@ def main() -> None:
         generate=not args.no_generate,
         fresh=not args.keep_cache,
         usd_per_mtok=args.usd_per_mtok,
+        schema_name=schema_name,
+        schema_fields=schema_fields,
+        glob=glob,
     )
 
     if args.output == "json":
