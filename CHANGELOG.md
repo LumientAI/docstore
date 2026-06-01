@@ -5,6 +5,12 @@ All notable changes are documented here. Format loosely follows
 [setuptools-scm](https://github.com/pypa/setuptools-scm) for versioning, so
 release numbers come from git tags.
 
+## [Unreleased]
+
+### Added
+
+- **`docstore watch`** — continuously monitor a directory and auto-extract new or modified documents. Configurable poll interval via `--interval`; no new dependencies.
+
 ## [0.1.0] - 2026-05-31
 
 Initial public release.
