@@ -553,23 +553,13 @@ def _fmt_cell(value) -> str:
 
 
 def _build_filter(expr: str):
-    """
-    Build a simple filter function from an expression like 'paid=false'.
-    Supports: field=value, field!=value
-    """
-    def filter_fn(result):
-        try:
-            if "!=" in expr:
-                field, value = expr.split("!=", 1)
-                return str(result.data.get(field.strip(), "")) != value.strip()
-            elif "=" in expr:
-                field, value = expr.split("=", 1)
-                actual = str(result.data.get(field.strip(), "")).lower()
-                return actual == value.strip().lower()
-        except Exception:
-            return True
-        return True
-    return filter_fn
+    from docstore.store import parse_filter, evaluate_filter
+    try:
+        ast = parse_filter(expr)
+    except ValueError as e:
+        rprint(f"[red]Invalid filter: {e}[/red]")
+        raise typer.Exit(1)
+    return lambda result: evaluate_filter(ast, result.data)
 
 
 if __name__ == "__main__":

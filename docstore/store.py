@@ -26,6 +26,100 @@ class StoreStats(dict):
     pass
 
 
+def _coerce(value: str) -> Any:
+    """Infer a Python value from a filter string token."""
+    v = value.strip()
+    if v.lower() in ("true", "yes"):
+        return True
+    if v.lower() in ("false", "no"):
+        return False
+    if v.lower() in ("null", "none"):
+        return None
+    try:
+        return int(v)
+    except ValueError:
+        pass
+    try:
+        return float(v)
+    except ValueError:
+        pass
+    return v
+
+
+_OP_TOKENS = ("<=", ">=", "!=", "<", ">", "=")
+
+
+def _parse_clause(token: str) -> dict[str, Any]:
+    for op in _OP_TOKENS:
+        if op in token:
+            idx = token.index(op)
+            field = token[:idx].strip()
+            value = token[idx + len(op):].strip()
+            return {"field": field, "op": op, "value": _coerce(value)}
+    raise ValueError(f"Invalid filter clause: {token!r}. Expected field<op>value.")
+
+
+def _tokenize_filter(expr: str) -> list[str]:
+    expr = expr.replace("(", " ( ").replace(")", " ) ")
+    return [t for t in expr.split() if t]
+
+
+def _parse_or(tokens: list[str], pos: int) -> tuple[dict[str, Any], int]:
+    left, pos = _parse_and(tokens, pos)
+    while pos < len(tokens) and tokens[pos].upper() == "OR":
+        right, pos = _parse_and(tokens, pos + 1)
+        left = {"or": [left, right]}
+    return left, pos
+
+
+def _parse_and(tokens: list[str], pos: int) -> tuple[dict[str, Any], int]:
+    left, pos = _parse_not(tokens, pos)
+    while pos < len(tokens) and tokens[pos].upper() == "AND":
+        right, pos = _parse_not(tokens, pos + 1)
+        left = {"and": [left, right]}
+    return left, pos
+
+
+def _parse_not(tokens: list[str], pos: int) -> tuple[dict[str, Any], int]:
+    if pos < len(tokens) and tokens[pos].upper() == "NOT":
+        operand, pos = _parse_not(tokens, pos + 1)
+        return {"not": operand}, pos
+    return _parse_atom(tokens, pos)
+
+
+def _parse_atom(tokens: list[str], pos: int) -> tuple[dict[str, Any], int]:
+    if pos >= len(tokens):
+        raise ValueError("Unexpected end of filter expression.")
+    if tokens[pos] == "(":
+        node, pos = _parse_or(tokens, pos + 1)
+        if pos >= len(tokens) or tokens[pos] != ")":
+            raise ValueError("Missing closing parenthesis in filter expression.")
+        return node, pos + 1
+    return _parse_clause(tokens[pos]), pos + 1
+
+
+def parse_filter(expr: str) -> dict[str, Any]:
+    """
+    Parse a filter expression string into an AST for evaluate_filter.
+
+    Supports: =  !=  <  >  <=  >=  AND  OR  NOT  ( )
+
+    Examples:
+        "paid=false"
+        "amount>5000"
+        "amount>1000 AND currency=USD"
+        "currency=EUR OR currency=GBP"
+        "(amount>5000 AND paid=false) OR currency=EUR"
+    """
+    tokens = _tokenize_filter(expr.strip())
+    if not tokens:
+        raise ValueError("Empty filter expression.")
+    ast, pos = _parse_or(tokens, 0)
+    if pos != len(tokens):
+        raise ValueError(f"Unexpected token in filter: {tokens[pos]!r}")
+    return ast
+
+
 def evaluate_filter(node: dict[str, Any], data: dict[str, Any]) -> bool:
     """
     Evaluate a filter AST (from `agents.compiler.compile_filter`) against a
