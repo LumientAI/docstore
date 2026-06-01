@@ -72,6 +72,36 @@ For richer expressions (`>`, `<`, `AND`, `OR`), use [`docstore ask`](#ask).
 
 ---
 
+## `watch`
+
+Monitor a directory and automatically extract new or modified documents as they appear. **Runs until interrupted with Ctrl+C.**
+
+```bash
+docstore watch <directory> --schema <fields> [OPTIONS]
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--schema` | **required** | Fields to extract, described in plain English. |
+| `--schema-name` | inferred | Override the schema name. |
+| `--interval`, `-i` | `2.0` | Poll interval in seconds. |
+| `--provider` | `anthropic` | `anthropic` / `openai` / `groq` / `gemini`. |
+| `--model`, `-m` | provider default | Model within the chosen provider. |
+| `--store-dir`, `-s` | `.docstore` | Cache directory. |
+| `--validate` | `false` | Run the validator on each extraction. |
+
+```bash
+# Watch an invoices directory
+docstore watch ./invoices/ --schema "vendor, amount, currency, due date, paid status"
+
+# Faster polling, custom store location
+docstore watch ./contracts/ --schema "parties, start date, expiry" --interval 0.5 --store-dir ./contracts/.docstore
+```
+
+Files already in the directory are processed on startup. Subsequent runs skip files that haven't changed (cache hit). Only files with a supported extension (`.pdf`, `.docx`, `.txt`, `.md`, `.csv`, `.html`, `.json`) are processed.
+
+---
+
 ## `ask`
 
 Compile a natural-language question into a filter via one LLM call, then evaluate against the cache.
