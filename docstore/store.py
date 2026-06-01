@@ -196,6 +196,66 @@ class DocStore:
                 results.append((schema_name, version))
         return results
 
+    # ── Aggregation ────────────────────────────────────────────────────────
+
+    def aggregate(
+        self,
+        schema_name: str,
+        filter_fn: Any = None,
+        group_by: str | None = None,
+        sum_fields: list[str] | None = None,
+        count: bool = False,
+        avg_fields: list[str] | None = None,
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        """
+        Aggregate cached results for a schema. Returns (rows, warnings).
+
+        rows    — one dict per group (or one dict total if no group_by)
+        warnings — type-coercion issues encountered during numeric ops
+        """
+        results = self.query(schema_name, filter_fn)
+        sum_fields = sum_fields or []
+        avg_fields = avg_fields or []
+        warnings: list[str] = []
+
+        groups: dict[str, list[ExtractionResult]] = {}
+        for r in results:
+            key = str(r.data.get(group_by, "(null)")) if group_by else "(all)"
+            groups.setdefault(key, []).append(r)
+
+        rows = []
+        for group_key, group_results in sorted(groups.items()):
+            row: dict[str, Any] = {}
+            if group_by:
+                row[group_by] = group_key
+            if count:
+                row["count"] = len(group_results)
+            for field in sum_fields:
+                total = 0.0
+                skipped = 0
+                for r in group_results:
+                    try:
+                        total += float(r.data.get(field))  # type: ignore[arg-type]
+                    except (TypeError, ValueError):
+                        skipped += 1
+                row[f"sum({field})"] = round(total, 4)
+                if skipped:
+                    warnings.append(f"sum({field}): {skipped} non-numeric value(s) skipped")
+            for field in avg_fields:
+                values = []
+                skipped = 0
+                for r in group_results:
+                    try:
+                        values.append(float(r.data.get(field)))  # type: ignore[arg-type]
+                    except (TypeError, ValueError):
+                        skipped += 1
+                row[f"avg({field})"] = round(sum(values) / len(values), 4) if values else None
+                if skipped:
+                    warnings.append(f"avg({field}): {skipped} non-numeric value(s) skipped")
+            rows.append(row)
+
+        return rows, warnings
+
     # ── Sync ───────────────────────────────────────────────────────────────
 
     def sync(self, delete: bool = False) -> list[str]:
