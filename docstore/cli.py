@@ -30,7 +30,7 @@ from docstore.agents import orchestrator, differ as differ_agent
 from docstore.config import DOCSTORE_MODEL, DOCSTORE_PROVIDER
 from docstore.llm import LLMClient, ProviderName, create_llm_client, resolve_model
 from docstore.schema import SchemaDescriptor
-from docstore.store import DocStore
+from docstore.store import DEFAULT_STORE_DIR, DocStore
 
 app = typer.Typer(
     name="docstore",
@@ -163,6 +163,60 @@ def query(
             row = [Path(r.file_path).name] + [_fmt_cell(r.data.get(k)) for k in keys]
             table.add_row(*row)
         console.print(table)
+
+
+# ── export ────────────────────────────────────────────────────────────────
+
+@app.command()
+def export(
+    schema_name: str = typer.Argument(..., help="Schema name to export"),
+    output_format: str = typer.Option("csv", "--format", "-f", help="Output format: csv, json, sqlite"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output file path (default: <schema_name>.<format>)"),
+    store_dir: Path = typer.Option(Path(DEFAULT_STORE_DIR), "--store-dir", "-s"),
+) -> None:
+    """Export all cached extractions for a schema to csv, json, or sqlite."""
+    store = DocStore(store_dir)
+    results = store.query(schema_name)
+    if not results:
+        console.print(f"[yellow]No entries found for schema '{schema_name}'[/yellow]")
+        raise typer.Exit(1)
+
+    fmt = output_format.lower()
+    if fmt not in ("csv", "json", "sqlite"):
+        console.print("[red]--format must be one of: csv, json, sqlite[/red]")
+        raise typer.Exit(1)
+
+    out_path = output or Path(f"{schema_name}.{fmt}")
+    safe_name = schema_name.replace('"', '""')
+    fields = list({k for r in results for k in r.data.keys()})
+
+    if fmt == "csv":
+        import csv
+        with open(out_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=["file_path", "extracted_at", *fields], extrasaction="ignore")
+            writer.writeheader()
+            for r in results:
+                row = {"file_path": r.file_path, "extracted_at": r.extracted_at, **r.data}
+                writer.writerow(row)
+
+    elif fmt == "json":
+        import json as _json
+        rows = [{"file_path": r.file_path, "extracted_at": r.extracted_at, **r.data} for r in results]
+        with open(out_path, "w") as f:
+            _json.dump(rows, f, indent=2, default=str)
+
+    elif fmt == "sqlite":
+        import sqlite3
+        cols = ", ".join(f'"{f}" TEXT' for f in ["file_path", "extracted_at", *fields])
+        with sqlite3.connect(out_path) as con:
+            con.execute(f'DROP TABLE IF EXISTS "{safe_name}"')
+            con.execute(f'CREATE TABLE "{safe_name}" ({cols})')
+            for r in results:
+                vals = [r.file_path, str(r.extracted_at), *[str(r.data.get(f, "")) for f in fields]]
+                placeholders = ", ".join("?" * len(vals))
+                con.execute(f'INSERT INTO "{safe_name}" VALUES ({placeholders})', vals)
+
+    console.print(f"[green]Exported {len(results)} records to {out_path}[/green]")
 
 
 # ── ask ────────────────────────────────────────────────────────────────────

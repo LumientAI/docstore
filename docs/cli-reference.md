@@ -72,6 +72,35 @@ For richer expressions (`>`, `<`, `AND`, `OR`), use [`docstore ask`](#ask).
 
 ---
 
+## `export`
+
+Export all cached extractions for a schema to a file. **Zero LLM calls.**
+
+```bash
+docstore export <schema> [OPTIONS]
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--format`, `-f` | `csv` | Output format: `csv`, `json`, or `sqlite`. |
+| `--output`, `-o` | `<schema>.<format>` | Output file path. |
+| `--store-dir`, `-s` | `.docstore` | Cache directory. |
+
+```bash
+# Export to CSV (default)
+docstore export invoice_schema --store-dir ./invoices/.docstore
+
+# Export to JSON
+docstore export invoice_schema --format json --output invoices.json
+
+# Export to SQLite
+docstore export invoice_schema --format sqlite --output invoices.db
+```
+
+Each row includes `file_path`, `extracted_at`, and all extracted fields. For `sqlite`, a table named after the schema is created (or replaced if it already exists).
+
+---
+
 ## `ask`
 
 Compile a natural-language question into a filter via one LLM call, then evaluate against the cache.
