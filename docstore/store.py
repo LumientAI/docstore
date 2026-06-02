@@ -61,7 +61,23 @@ def _parse_clause(token: str) -> dict[str, Any]:
 
 def _tokenize_filter(expr: str) -> list[str]:
     expr = expr.replace("(", " ( ").replace(")", " ) ")
-    return [t for t in expr.split() if t]
+    tokens: list[str] = []
+    current: list[str] = []
+    in_quote: str | None = None
+    for char in expr:
+        if char in ('"', "'") and in_quote is None:
+            in_quote = char
+        elif char == in_quote:
+            in_quote = None
+        elif char.isspace() and in_quote is None:
+            if current:
+                tokens.append("".join(current))
+                current = []
+        else:
+            current.append(char)
+    if current:
+        tokens.append("".join(current))
+    return tokens
 
 
 def _parse_or(tokens: list[str], pos: int) -> tuple[dict[str, Any], int]:
@@ -144,8 +160,12 @@ def evaluate_filter(node: dict[str, Any], data: dict[str, Any]) -> bool:
     if op == "is_null":
         return actual is None
     if op == "=":
+        if isinstance(actual, str) and isinstance(value, str):
+            return actual.lower() == value.lower()
         return actual == value
     if op == "!=":
+        if isinstance(actual, str) and isinstance(value, str):
+            return actual.lower() != value.lower()
         return actual != value
     if op == "contains":
         return value in actual if actual is not None else False
