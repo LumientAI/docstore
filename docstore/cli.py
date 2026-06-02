@@ -557,7 +557,11 @@ def watch(
         console.print("[red]--schema is required[/red]")
         raise typer.Exit(1)
 
-    client = create_llm_client(provider=provider, model=model)
+    if not directory.is_dir():
+        console.print(f"[red]Directory '{directory}' does not exist.[/red]")
+        raise typer.Exit(1)
+
+    client, resolved_model = _create_llm(provider, model)
     store = DocStore(store_dir)
     descriptor = elicit_schema(schema, store.list_schemas(), client=client, name=schema_name)
 
@@ -577,11 +581,14 @@ def watch(
                 seen[f] = mtime
                 console.print(f"  [dim]{f.name}[/dim] → extracting…")
                 try:
-                    result = run_pipeline(f, descriptor, store, client, getattr(client, "model", model or ""), validate=validate)
+                    result = run_pipeline(f, descriptor, store, client, resolved_model, validate=validate)
                     status = "[dim]cached[/dim]" if result.cache_hit else f"[green]extracted[/green] ({result.tokens_used} tokens)"
                     console.print(f"  [dim]{f.name}[/dim] → {status}")
                 except Exception as exc:
                     console.print(f"  [red]{f.name} failed:[/red] {exc}")
+            stale = store.sync(delete=True)
+            for fp in stale:
+                console.print(f"  [dim]{Path(fp).name}[/dim] → [yellow]removed (source deleted)[/yellow]")
             time.sleep(interval)
     except KeyboardInterrupt:
         console.print("\n[yellow]Stopped.[/yellow]")
