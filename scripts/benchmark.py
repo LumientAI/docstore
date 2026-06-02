@@ -129,13 +129,40 @@ def run_extract_scenario(
     return summarize_extract(scenario, results, time.perf_counter() - t0, usd_per_mtok)
 
 
+def _build_filter(expr: str):
+    if "!=" in expr:
+        field, value = expr.split("!=", 1)
+        return lambda r: str(r.data.get(field.strip(), "")).lower() != value.strip().lower()
+    if "=" in expr:
+        field, value = expr.split("=", 1)
+        v = value.strip().lower()
+        if v in ("true", "yes"):
+            coerced: Any = True
+        elif v in ("false", "no"):
+            coerced = False
+        else:
+            try:
+                coerced = int(v)
+            except ValueError:
+                coerced = v
+        return lambda r, f=field.strip(), c=coerced: (
+            str(r.data.get(f, "")).lower() == str(c).lower()
+            if isinstance(c, str)
+            else r.data.get(f) == c
+        )
+    raise ValueError(f"Unsupported filter expression: {expr!r}")
+
+
 def run_cached_query_scenario(
     descriptor: SchemaDescriptor,
     store: DocStore,
+    filter_expr: str | None = None,
 ) -> dict[str, Any]:
     t0 = time.perf_counter()
-    results = store.query(descriptor.name)
-    return summarize_query("cached_query", len(results), time.perf_counter() - t0)
+    filter_fn = _build_filter(filter_expr) if filter_expr else None
+    results = store.query(descriptor.name, filter_fn)
+    label = f"cached_query[{filter_expr}]" if filter_expr else "cached_query"
+    return summarize_query(label, len(results), time.perf_counter() - t0)
 
 
 def prepare_corpus(directory: Path, count: int, seed: int, generate: bool, glob: str = "invoice_*.txt") -> int:
@@ -162,6 +189,7 @@ def run_benchmark(
     schema_name: str | None = None,
     schema_fields: dict[str, str] | None = None,
     glob: str = "invoice_*.txt",
+    filter_expr: str | None = None,
 ) -> dict[str, Any]:
     document_count = prepare_corpus(directory, count, seed, generate, glob=glob)
     store_dir = directory / ".docstore"
@@ -183,7 +211,7 @@ def run_benchmark(
     warm = run_extract_scenario(
         "warm_extract", directory, descriptor, store, client, model, usd_per_mtok, glob=glob
     )
-    query = run_cached_query_scenario(descriptor, store)
+    query = run_cached_query_scenario(descriptor, store, filter_expr=filter_expr)
 
     return {
         "corpus": {
@@ -263,6 +291,8 @@ def main() -> None:
     parser.add_argument("--model", default=None)
     parser.add_argument("--usd-per-mtok", type=float, default=1.0)
     parser.add_argument("--output", choices=["table", "json"], default="table")
+    parser.add_argument("--filter", default=None,
+                        help='Filter expression for cached_query scenario (default: "paid=false" for invoice benchmark)')
     args = parser.parse_args()
 
     # Resolve glob: explicit > infer from --no-generate > invoice default
@@ -282,6 +312,8 @@ def main() -> None:
         schema_name = descriptor.name
         schema_fields = dict(descriptor.fields)
 
+    filter_expr = args.filter or None
+
     report = run_benchmark(
         args.directory,
         count=args.count,
@@ -294,6 +326,7 @@ def main() -> None:
         schema_name=schema_name,
         schema_fields=schema_fields,
         glob=glob,
+        filter_expr=filter_expr,
     )
 
     if args.output == "json":
