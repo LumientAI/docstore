@@ -81,6 +81,7 @@ def extract(
              "lives with the corpus."),
     provider: ProviderName = typer.Option(DOCSTORE_PROVIDER, "--provider"),
     model: str | None = typer.Option(None, "--model"),
+    workers: int = typer.Option(1, "--workers", "-w", help="Parallel extraction workers", min=1),
 ):
     """Extract structured data from a file or directory."""
     client, model = _create_llm(provider, model)
@@ -92,7 +93,7 @@ def extract(
     if path.is_dir():
         rprint(f"[gold1]Scanning[/gold1] {path} ...")
         results = orchestrator.run_directory(path, descriptor, store, client, model,
-                                             validate=validate)
+                                             validate=validate, workers=workers)
     else:
         results = [orchestrator.run_pipeline(path, descriptor, store, client, model,
                                              validate=validate)]
