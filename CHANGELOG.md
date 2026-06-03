@@ -10,6 +10,7 @@ release numbers come from git tags.
 ### Added
 
 - **`--workers` flag on `docstore extract`** — parallel document extraction via `ThreadPoolExecutor`. Sequential behaviour (`--workers 1`) is unchanged.
+- **Aggregation on `docstore query`** — `--group-by`, `--count`, `--sum`, and `--avg` flags for in-cache aggregation with zero LLM calls. Non-numeric values are skipped with a warning.
 - **`docstore watch`** — continuously monitor a directory and auto-extract new or modified documents. Configurable poll interval via `--interval`; no new dependencies.
 
 ## [0.1.0] - 2026-05-31

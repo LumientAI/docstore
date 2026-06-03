@@ -25,7 +25,7 @@ from docstore.agents import extractor as extractor_agent
 from docstore.config import DOCSTORE_DIR, DOCSTORE_MODEL, DOCSTORE_PROVIDER
 from docstore.llm import LLMClient, create_llm_client, resolve_model
 from docstore.schema import SchemaDescriptor
-from docstore.store import DocStore
+from docstore.store import DocStore, parse_filter, evaluate_filter
 
 
 MODEL = resolve_model(DOCSTORE_PROVIDER, DOCSTORE_MODEL)
@@ -219,20 +219,15 @@ async def _handle_query(args: dict) -> list[TextContent]:
     schema_name = args["schema_name"]
     filter_expr = args.get("filter")
 
-    def filter_fn(result):
-        if not filter_expr:
-            return True
+    if filter_expr:
         try:
-            if "!=" in filter_expr:
-                field, value = filter_expr.split("!=", 1)
-                return str(result.data.get(field.strip(), "")) != value.strip()
-            elif "=" in filter_expr:
-                field, value = filter_expr.split("=", 1)
-                actual = str(result.data.get(field.strip(), "")).lower()
-                return actual == value.strip().lower()
-        except Exception:
-            return True
-        return True
+            ast = parse_filter(filter_expr)
+        except ValueError as e:
+            return [TextContent(type="text", text=f"Invalid filter: {e}")]
+        def filter_fn(result):
+            return evaluate_filter(ast, result.data)
+    else:
+        filter_fn = None
 
     results = store.query(schema_name, filter_fn)
     if not results:

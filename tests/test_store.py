@@ -236,3 +236,122 @@ def test_find_for_path_ignores_other_files(tmp_store, sample_file, descriptor, t
     found = tmp_store.find_for_path(sample_file, descriptor.name)
     assert found is not None
     assert found.data == {"vendor": "Mine"}
+
+
+# ── aggregate ─────────────────────────────────────────────────────────────
+
+def _populate(store, tmp_path, descriptor, records):
+    for i, data in enumerate(records):
+        f = tmp_path / f"doc_{i}.txt"
+        f.write_text(f"document {i}")
+        store.set(make_result(f, store.file_hash(f), descriptor, data=data))
+
+
+def test_aggregate_count(tmp_store, tmp_path, descriptor):
+    _populate(tmp_store, tmp_path, descriptor, [
+        {"vendor": "Acme", "amount": 100},
+        {"vendor": "Beta", "amount": 200},
+        {"vendor": "Acme", "amount": 300},
+    ])
+    rows, warnings = tmp_store.aggregate("invoice_schema", count=True)
+    assert len(rows) == 1
+    assert rows[0]["count"] == 3
+    assert not warnings
+
+
+def test_aggregate_group_by(tmp_store, tmp_path, descriptor):
+    _populate(tmp_store, tmp_path, descriptor, [
+        {"vendor": "Acme", "amount": 100},
+        {"vendor": "Beta", "amount": 200},
+        {"vendor": "Acme", "amount": 300},
+    ])
+    rows, warnings = tmp_store.aggregate("invoice_schema", group_by="vendor", count=True)
+    by_vendor = {r["vendor"]: r for r in rows}
+    assert by_vendor["Acme"]["count"] == 2
+    assert by_vendor["Beta"]["count"] == 1
+    assert not warnings
+
+
+def test_aggregate_sum(tmp_store, tmp_path, descriptor):
+    _populate(tmp_store, tmp_path, descriptor, [
+        {"vendor": "Acme", "amount": 100},
+        {"vendor": "Beta", "amount": 200},
+        {"vendor": "Acme", "amount": 300},
+    ])
+    rows, warnings = tmp_store.aggregate("invoice_schema", sum_fields=["amount"])
+    assert len(rows) == 1
+    assert rows[0]["sum(amount)"] == pytest.approx(600.0)
+    assert not warnings
+
+
+def test_aggregate_avg(tmp_store, tmp_path, descriptor):
+    _populate(tmp_store, tmp_path, descriptor, [
+        {"vendor": "Acme", "amount": 100},
+        {"vendor": "Beta", "amount": 200},
+        {"vendor": "Acme", "amount": 300},
+    ])
+    rows, warnings = tmp_store.aggregate("invoice_schema", avg_fields=["amount"])
+    assert len(rows) == 1
+    assert rows[0]["avg(amount)"] == pytest.approx(200.0)
+    assert not warnings
+
+
+def test_aggregate_group_by_sum(tmp_store, tmp_path, descriptor):
+    _populate(tmp_store, tmp_path, descriptor, [
+        {"vendor": "Acme", "amount": 100},
+        {"vendor": "Beta", "amount": 200},
+        {"vendor": "Acme", "amount": 300},
+    ])
+    rows, warnings = tmp_store.aggregate("invoice_schema", group_by="vendor", sum_fields=["amount"])
+    by_vendor = {r["vendor"]: r for r in rows}
+    assert by_vendor["Acme"]["sum(amount)"] == pytest.approx(400.0)
+    assert by_vendor["Beta"]["sum(amount)"] == pytest.approx(200.0)
+    assert not warnings
+
+
+def test_aggregate_group_by_avg(tmp_store, tmp_path, descriptor):
+    _populate(tmp_store, tmp_path, descriptor, [
+        {"vendor": "Acme", "amount": 100},
+        {"vendor": "Acme", "amount": 300},
+        {"vendor": "Beta", "amount": 200},
+    ])
+    rows, warnings = tmp_store.aggregate("invoice_schema", group_by="vendor", avg_fields=["amount"])
+    by_vendor = {r["vendor"]: r for r in rows}
+    assert by_vendor["Acme"]["avg(amount)"] == pytest.approx(200.0)
+    assert by_vendor["Beta"]["avg(amount)"] == pytest.approx(200.0)
+    assert not warnings
+
+
+def test_aggregate_non_numeric_skipped_with_warning(tmp_store, tmp_path, descriptor):
+    _populate(tmp_store, tmp_path, descriptor, [
+        {"vendor": "Acme", "amount": 100},
+        {"vendor": "Beta", "amount": "N/A"},
+    ])
+    rows, warnings = tmp_store.aggregate("invoice_schema", sum_fields=["amount"])
+    assert rows[0]["sum(amount)"] == pytest.approx(100.0)
+    assert len(warnings) == 1
+    assert "sum(amount)" in warnings[0]
+
+
+def test_aggregate_empty_store(tmp_store):
+    rows, warnings = tmp_store.aggregate("invoice_schema", count=True)
+    assert rows == []
+    assert warnings == []
+
+
+def test_aggregate_with_filter(tmp_store, tmp_path, descriptor):
+    _populate(tmp_store, tmp_path, descriptor, [
+        {"vendor": "Acme", "amount": 100, "paid": True},
+        {"vendor": "Beta", "amount": 200, "paid": False},
+        {"vendor": "Acme", "amount": 300, "paid": False},
+    ])
+    rows, warnings = tmp_store.aggregate(
+        "invoice_schema",
+        filter_fn=lambda r: r.data.get("paid") is False,
+        count=True,
+        sum_fields=["amount"],
+    )
+    assert len(rows) == 1
+    assert rows[0]["count"] == 2
+    assert rows[0]["sum(amount)"] == pytest.approx(500.0)
+    assert not warnings

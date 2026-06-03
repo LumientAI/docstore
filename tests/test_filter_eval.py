@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from docstore.store import evaluate_filter
+from docstore.store import evaluate_filter, parse_filter
 
 
 # A realistic-shaped record for tests
@@ -132,3 +132,81 @@ def test_error_node_returns_false():
 def test_unknown_operator_raises():
     with pytest.raises(ValueError, match="Unknown filter operator"):
         evaluate_filter({"field": "currency", "op": "regex", "value": ".*"}, SAMPLE)
+
+
+# ── parse_filter ────────────────────────────────────────────────────────────
+
+
+def test_parse_simple_eq():
+    ast = parse_filter("currency=USD")
+    assert evaluate_filter(ast, SAMPLE) is True
+
+
+def test_parse_simple_neq():
+    ast = parse_filter("currency!=EUR")
+    assert evaluate_filter(ast, SAMPLE) is True
+
+
+def test_parse_gt():
+    ast = parse_filter("total_amount>1000")
+    assert evaluate_filter(ast, SAMPLE) is True
+
+
+def test_parse_lt():
+    ast = parse_filter("total_amount<1000")
+    assert evaluate_filter(ast, SAMPLE) is False
+
+
+def test_parse_gte():
+    ast = parse_filter("total_amount>=1150.72")
+    assert evaluate_filter(ast, SAMPLE) is True
+
+
+def test_parse_lte():
+    ast = parse_filter("total_amount<=1150.72")
+    assert evaluate_filter(ast, SAMPLE) is True
+
+
+def test_parse_and():
+    ast = parse_filter("is_paid=false AND currency=USD")
+    assert evaluate_filter(ast, SAMPLE) is True
+
+
+def test_parse_or():
+    ast = parse_filter("currency=EUR OR currency=USD")
+    assert evaluate_filter(ast, SAMPLE) is True
+
+
+def test_parse_not():
+    ast = parse_filter("NOT is_paid=true")
+    assert evaluate_filter(ast, SAMPLE) is True
+
+
+def test_parse_parens():
+    ast = parse_filter("(total_amount>1000 AND currency=USD) OR is_paid=true")
+    assert evaluate_filter(ast, SAMPLE) is True
+
+
+def test_parse_coerces_bool():
+    ast = parse_filter("is_paid=false")
+    assert ast == {"field": "is_paid", "op": "=", "value": False}
+
+
+def test_parse_coerces_int():
+    ast = parse_filter("total_amount>1000")
+    assert ast == {"field": "total_amount", "op": ">", "value": 1000}
+
+
+def test_parse_coerces_float():
+    ast = parse_filter("total_amount>=1150.72")
+    assert ast == {"field": "total_amount", "op": ">=", "value": 1150.72}
+
+
+def test_parse_invalid_clause_raises():
+    with pytest.raises(ValueError, match="Invalid filter clause"):
+        parse_filter("no_operator_here")
+
+
+def test_parse_unclosed_paren_raises():
+    with pytest.raises(ValueError, match="Missing closing parenthesis"):
+        parse_filter("(currency=USD AND is_paid=false")
