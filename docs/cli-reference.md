@@ -62,17 +62,36 @@ docstore query <schema> [OPTIONS]
 | `--filter`, `-f` | none | Single comparison expression. Operators: `=`, `!=`. |
 | `--output`, `-o` | `table` | `table` or `json`. |
 | `--store` | `.docstore` | Cache directory (pass explicitly for corpus-local caches). |
+| `--group-by`, `-g` | none | Group results by a field value. |
+| `--count` | `false` | Count records (per group if `--group-by` is set). |
+| `--sum` | none | Sum a numeric field. Repeatable. |
+| `--avg` | none | Average a numeric field. Repeatable. |
 
 ```bash
+# Filter only
 docstore query invoice_schema --filter "is_paid=false" --store ./invoices/.docstore
-docstore query invoice_schema --output json --store ./invoices/.docstore
+
+# Count all records
+docstore query invoice_schema --count
+
+# Group by vendor, count and sum amount
+docstore query invoice_schema --group-by vendor --count --sum amount
+
+# Multiple aggregations
+docstore query invoice_schema --group-by currency --sum amount --avg amount
+
+# Combine with a filter
+docstore query invoice_schema --filter "is_paid=false" --group-by vendor --sum amount
 ```
 
-For richer expressions (`>`, `<`, `AND`, `OR`), use [`docstore ask`](#ask).
+When any aggregation flag is present the output switches to an aggregation table. Non-numeric values are skipped with a warning. Use `--output json` for machine-readable output.
+
+For richer filter expressions (`>`, `<`, `AND`, `OR`), use [`docstore ask`](#ask).
 
 ---
 
 ## `ask`
+
 
 Compile a natural-language question into a filter via one LLM call, then evaluate against the cache.
 

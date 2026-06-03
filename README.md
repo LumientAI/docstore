@@ -119,6 +119,9 @@ docstore extract ./invoices/ --schema invoice_schema --provider gemini --model g
 # Query stored results (no LLM)
 docstore query invoice_schema --filter "is_paid=false" --store ./invoices/.docstore
 
+# Aggregate: count and sum per vendor (no LLM)
+docstore query invoice_schema --group-by vendor --count --sum amount --store ./invoices/.docstore
+
 # Ask in natural language - one LLM call compiles to a filter,
 # results come from cache with no per-document re-reads
 docstore ask "which unpaid invoices are over $5000?" --schema invoice_schema --store ./invoices/.docstore

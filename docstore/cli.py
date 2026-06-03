@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import typer
 from dotenv import load_dotenv
@@ -136,11 +136,46 @@ def query(
     output: str = typer.Option("table", "--output", "-o",
         help="Output format: table | json"),
     store_dir: str = typer.Option(".docstore", "--store"),
+    group_by: Optional[str] = typer.Option(None, "--group-by", "-g",
+        help="Group results by a field value"),
+    sum_fields: Optional[List[str]] = typer.Option(None, "--sum",
+        help="Sum a numeric field. Repeatable: --sum amount --sum tax"),
+    count: bool = typer.Option(False, "--count",
+        help="Count records (per group if --group-by is set)"),
+    avg_fields: Optional[List[str]] = typer.Option(None, "--avg",
+        help="Average a numeric field. Repeatable: --avg amount"),
 ):
     """Query stored extraction results. No LLM calls."""
     store = _get_store(store_dir)
-
     filter_fn = _build_filter(filter_expr) if filter_expr else None
+
+    aggregating = group_by or sum_fields or count or avg_fields
+    if aggregating:
+        rows, warnings = store.aggregate(
+            schema,
+            filter_fn=filter_fn,
+            group_by=group_by,
+            sum_fields=list(sum_fields or []),
+            count=count,
+            avg_fields=list(avg_fields or []),
+        )
+        if not rows:
+            rprint(f"[yellow]No results found for schema '{schema}'[/yellow]")
+            raise typer.Exit()
+        for w in warnings:
+            rprint(f"[yellow]Warning: {w}[/yellow]")
+        if output == "json":
+            rprint(json.dumps(rows, indent=2))
+            return
+        cols = list(rows[0].keys())
+        table = Table(title=f"{schema} — aggregation")
+        for col in cols:
+            table.add_column(col, justify="right" if col != group_by else "left")
+        for row in rows:
+            table.add_row(*[str(row.get(c, "")) for c in cols])
+        console.print(table)
+        return
+
     results = store.query(schema, filter_fn)
 
     if not results:
@@ -519,23 +554,13 @@ def _fmt_cell(value) -> str:
 
 
 def _build_filter(expr: str):
-    """
-    Build a simple filter function from an expression like 'paid=false'.
-    Supports: field=value, field!=value
-    """
-    def filter_fn(result):
-        try:
-            if "!=" in expr:
-                field, value = expr.split("!=", 1)
-                return str(result.data.get(field.strip(), "")) != value.strip()
-            elif "=" in expr:
-                field, value = expr.split("=", 1)
-                actual = str(result.data.get(field.strip(), "")).lower()
-                return actual == value.strip().lower()
-        except Exception:
-            return True
-        return True
-    return filter_fn
+    from docstore.store import parse_filter, evaluate_filter
+    try:
+        ast = parse_filter(expr)
+    except ValueError as e:
+        rprint(f"[red]Invalid filter: {e}[/red]")
+        raise typer.Exit(1)
+    return lambda result: evaluate_filter(ast, result.data)
 
 
 if __name__ == "__main__":

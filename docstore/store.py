@@ -26,6 +26,116 @@ class StoreStats(dict):
     pass
 
 
+def _coerce(value: str) -> Any:
+    """Infer a Python value from a filter string token."""
+    v = value.strip()
+    if v.lower() in ("true", "yes"):
+        return True
+    if v.lower() in ("false", "no"):
+        return False
+    if v.lower() in ("null", "none"):
+        return None
+    try:
+        return int(v)
+    except ValueError:
+        pass
+    try:
+        return float(v)
+    except ValueError:
+        pass
+    return v
+
+
+_OP_TOKENS = ("<=", ">=", "!=", "<", ">", "=")
+
+
+def _parse_clause(token: str) -> dict[str, Any]:
+    for op in _OP_TOKENS:
+        if op in token:
+            idx = token.index(op)
+            field = token[:idx].strip()
+            value = token[idx + len(op):].strip()
+            return {"field": field, "op": op, "value": _coerce(value)}
+    raise ValueError(f"Invalid filter clause: {token!r}. Expected field<op>value.")
+
+
+def _tokenize_filter(expr: str) -> list[str]:
+    expr = expr.replace("(", " ( ").replace(")", " ) ")
+    tokens: list[str] = []
+    current: list[str] = []
+    in_quote: str | None = None
+    for char in expr:
+        if char in ('"', "'") and in_quote is None:
+            in_quote = char
+        elif char == in_quote:
+            in_quote = None
+        elif char.isspace() and in_quote is None:
+            if current:
+                tokens.append("".join(current))
+                current = []
+        else:
+            current.append(char)
+    if current:
+        tokens.append("".join(current))
+    return tokens
+
+
+def _parse_or(tokens: list[str], pos: int) -> tuple[dict[str, Any], int]:
+    left, pos = _parse_and(tokens, pos)
+    while pos < len(tokens) and tokens[pos].upper() == "OR":
+        right, pos = _parse_and(tokens, pos + 1)
+        left = {"or": [left, right]}
+    return left, pos
+
+
+def _parse_and(tokens: list[str], pos: int) -> tuple[dict[str, Any], int]:
+    left, pos = _parse_not(tokens, pos)
+    while pos < len(tokens) and tokens[pos].upper() == "AND":
+        right, pos = _parse_not(tokens, pos + 1)
+        left = {"and": [left, right]}
+    return left, pos
+
+
+def _parse_not(tokens: list[str], pos: int) -> tuple[dict[str, Any], int]:
+    if pos < len(tokens) and tokens[pos].upper() == "NOT":
+        operand, pos = _parse_not(tokens, pos + 1)
+        return {"not": operand}, pos
+    return _parse_atom(tokens, pos)
+
+
+def _parse_atom(tokens: list[str], pos: int) -> tuple[dict[str, Any], int]:
+    if pos >= len(tokens):
+        raise ValueError("Unexpected end of filter expression.")
+    if tokens[pos] == "(":
+        node, pos = _parse_or(tokens, pos + 1)
+        if pos >= len(tokens) or tokens[pos] != ")":
+            raise ValueError("Missing closing parenthesis in filter expression.")
+        return node, pos + 1
+    return _parse_clause(tokens[pos]), pos + 1
+
+
+def parse_filter(expr: str) -> dict[str, Any]:
+    """
+    Parse a filter expression string into an AST for evaluate_filter.
+
+    Supports: =  !=  <  >  <=  >=  AND  OR  NOT  ( )
+
+    Examples:
+        "paid=false"
+        "amount>5000"
+        "amount>1000 AND currency=USD"
+        "currency=EUR OR currency=GBP"
+        "(amount>5000 AND paid=false) OR currency=EUR"
+    """
+    tokens = _tokenize_filter(expr.strip())
+    if not tokens:
+        raise ValueError("Empty filter expression.")
+    ast, pos = _parse_or(tokens, 0)
+    if pos != len(tokens):
+        raise ValueError(f"Unexpected token in filter: {tokens[pos]!r}")
+    return ast
+
+
 def evaluate_filter(node: dict[str, Any], data: dict[str, Any]) -> bool:
     """
     Evaluate a filter AST (from `agents.compiler.compile_filter`) against a
@@ -50,8 +160,12 @@ def evaluate_filter(node: dict[str, Any], data: dict[str, Any]) -> bool:
     if op == "is_null":
         return actual is None
     if op == "=":
+        if isinstance(actual, str) and isinstance(value, str):
+            return actual.lower() == value.lower()
         return actual == value
     if op == "!=":
+        if isinstance(actual, str) and isinstance(value, str):
+            return actual.lower() != value.lower()
         return actual != value
     if op == "contains":
         return value in actual if actual is not None else False
@@ -195,6 +309,66 @@ class DocStore:
                 _, schema_name, version = parts
                 results.append((schema_name, version))
         return results
+
+    # ── Aggregation ────────────────────────────────────────────────────────
+
+    def aggregate(
+        self,
+        schema_name: str,
+        filter_fn: Any = None,
+        group_by: str | None = None,
+        sum_fields: list[str] | None = None,
+        count: bool = False,
+        avg_fields: list[str] | None = None,
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        """
+        Aggregate cached results for a schema. Returns (rows, warnings).
+
+        rows    — one dict per group (or one dict total if no group_by)
+        warnings — type-coercion issues encountered during numeric ops
+        """
+        results = self.query(schema_name, filter_fn)
+        sum_fields = sum_fields or []
+        avg_fields = avg_fields or []
+        warnings: list[str] = []
+
+        groups: dict[str, list[ExtractionResult]] = {}
+        for r in results:
+            key = str(r.data.get(group_by, "(null)")) if group_by else "(all)"
+            groups.setdefault(key, []).append(r)
+
+        rows = []
+        for group_key, group_results in sorted(groups.items()):
+            row: dict[str, Any] = {}
+            if group_by:
+                row[group_by] = group_key
+            if count:
+                row["count"] = len(group_results)
+            for field in sum_fields:
+                total = 0.0
+                skipped = 0
+                for r in group_results:
+                    try:
+                        total += float(r.data.get(field))  # type: ignore[arg-type]
+                    except (TypeError, ValueError):
+                        skipped += 1
+                row[f"sum({field})"] = round(total, 4)
+                if skipped:
+                    warnings.append(f"sum({field}): {skipped} non-numeric value(s) skipped")
+            for field in avg_fields:
+                values = []
+                skipped = 0
+                for r in group_results:
+                    try:
+                        values.append(float(r.data.get(field)))  # type: ignore[arg-type]
+                    except (TypeError, ValueError):
+                        skipped += 1
+                row[f"avg({field})"] = round(sum(values) / len(values), 4) if values else None
+                if skipped:
+                    warnings.append(f"avg({field}): {skipped} non-numeric value(s) skipped")
+            rows.append(row)
+
+        return rows, warnings
 
     # ── Sync ───────────────────────────────────────────────────────────────
 
