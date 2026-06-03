@@ -27,10 +27,11 @@ from rich.table import Table
 load_dotenv()
 
 from docstore.agents import orchestrator, differ as differ_agent
+from docstore.agents.orchestrator import run_pipeline, elicit_schema
 from docstore.config import DOCSTORE_MODEL, DOCSTORE_PROVIDER
-from docstore.llm import LLMClient, ProviderName, create_llm_client, resolve_model
+from docstore.llm import LLMClient, ProviderName, create_llm_client, resolve_model, DEFAULT_PROVIDER
 from docstore.schema import SchemaDescriptor
-from docstore.store import DocStore
+from docstore.store import DocStore, DEFAULT_STORE_DIR
 
 app = typer.Typer(
     name="docstore",
@@ -561,6 +562,61 @@ def _build_filter(expr: str):
         rprint(f"[red]Invalid filter: {e}[/red]")
         raise typer.Exit(1)
     return lambda result: evaluate_filter(ast, result.data)
+
+
+@app.command()
+def watch(
+    directory: Path = typer.Argument(..., help="Directory to watch for new/modified documents"),
+    schema: Optional[str] = typer.Option(None, "--schema", help="Schema fields in natural language (required if --schema-class not used)"),
+    schema_name: Optional[str] = typer.Option(None, "--schema-name", help="Schema name override"),
+    interval: float = typer.Option(2.0, "--interval", "-i", help="Poll interval in seconds"),
+    provider: str = typer.Option(DEFAULT_PROVIDER, "--provider", "-p"),
+    model: Optional[str] = typer.Option(None, "--model", "-m"),
+    store_dir: Path = typer.Option(Path(DEFAULT_STORE_DIR), "--store-dir", "-s"),
+    validate: bool = typer.Option(False, "--validate"),
+) -> None:
+    """Watch a directory and extract new or modified documents automatically."""
+    import time
+
+    if not schema:
+        console.print("[red]--schema is required[/red]")
+        raise typer.Exit(1)
+
+    if not directory.is_dir():
+        console.print(f"[red]Directory '{directory}' does not exist.[/red]")
+        raise typer.Exit(1)
+
+    client, resolved_model = _create_llm(provider, model)
+    store = DocStore(store_dir)
+    descriptor = elicit_schema(schema, store.list_schemas(), client=client, name=schema_name)
+
+    supported = {".pdf", ".docx", ".txt", ".md", ".csv", ".html", ".json"}
+    seen: dict[Path, float] = {}
+
+    console.print(f"[bold]Watching[/bold] {directory} for schema [cyan]{descriptor.name}[/cyan] (interval: {interval}s) — Ctrl+C to stop")
+
+    try:
+        while True:
+            for f in sorted(directory.glob("*")):
+                if not f.is_file() or f.suffix.lower() not in supported:
+                    continue
+                mtime = f.stat().st_mtime
+                if seen.get(f) == mtime:
+                    continue
+                seen[f] = mtime
+                console.print(f"  [dim]{f.name}[/dim] → extracting…")
+                try:
+                    result = run_pipeline(f, descriptor, store, client, resolved_model, validate=validate)
+                    status = "[dim]cached[/dim]" if result.cache_hit else f"[green]extracted[/green] ({result.tokens_used} tokens)"
+                    console.print(f"  [dim]{f.name}[/dim] → {status}")
+                except Exception as exc:
+                    console.print(f"  [red]{f.name} failed:[/red] {exc}")
+            stale = store.sync(delete=True)
+            for fp in stale:
+                console.print(f"  [dim]{Path(fp).name}[/dim] → [yellow]removed (source deleted)[/yellow]")
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Stopped.[/yellow]")
 
 
 if __name__ == "__main__":
