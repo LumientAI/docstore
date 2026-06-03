@@ -37,15 +37,31 @@ synthetic invoice corpus, writes `ground_truth.jsonl`, then measures:
 
 - `cold_extract`: empty cache, every document calls the LLM once
 - `warm_extract`: same corpus and schema, every document is served from cache
-- `cached_query`: query stored JSON locally, with no parser or LLM calls
+- `cached_query`: filtered query against cached JSON — zero LLM calls, near-instant
 
 ```bash
+# Synthetic invoices (auto-generated)
 uv run python scripts/benchmark.py /tmp/docstore-benchmark --count 30
-uv run python scripts/benchmark.py /tmp/docstore-benchmark --count 30 --output json
+uv run python scripts/benchmark.py /tmp/docstore-benchmark --count 30 --filter "paid=false"
+
+# Any existing folder of documents
+uv run python scripts/benchmark.py ./my-documents \
+  --no-generate --schema my_schema --ask --glob "*.pdf" --filter "status=active"
 ```
 
 Use `--provider` and `--model` to run it against a specific vendor. The
 benchmark is intended to show cache behavior, not provider quality.
+
+A contract-specific corpus generator is also included for demo purposes:
+
+```bash
+# Generate 30 synthetic vendor contract PDFs
+uv run --extra scripts python scripts/generate_pdf_contracts.py ./sample_contracts
+
+# Then benchmark against them
+uv run python scripts/benchmark.py ./sample_contracts \
+  --no-generate --schema contracts --ask --glob "contract_*.pdf" --filter "status=active"
+```
 
 ---
 
