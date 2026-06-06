@@ -1,0 +1,4 @@
+interface:
+  display_name: "docstore"
+  short_description: "Use cached structured extractions instead of rereading documents."
+  default_prompt: "Use docstore to answer repeated structured questions over local documents. Check cache state first, query existing schemas when possible, and extract only when the cache is missing."

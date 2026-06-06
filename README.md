@@ -32,20 +32,33 @@ docstore treats structured extraction as a **cache over your unstructured data**
 
 ## Benchmark
 
-docstore ships with a reproducible public cache benchmark. It generates a
-synthetic invoice corpus, writes `ground_truth.jsonl`, then measures:
+docstore ships with a reproducible public cache benchmark for multi-file
+document questions. It generates a synthetic invoice corpus, writes
+`ground_truth.jsonl`, then measures:
 
-- `cold_extract`: empty cache, every document calls the LLM once
-- `warm_extract`: same corpus and schema, every document is served from cache
-- `cached_query`: query stored JSON locally, with no parser or LLM calls
+- `cold_extract`: pays the one-time extraction cost against an empty cache
+- `warm_extract`: proves unchanged files and schemas are served from cache
+- `direct_context_query`: asks the LLM over the full document corpus each time
+- `cached_query`: answers from stored JSON with no parser or LLM calls
 
 ```bash
 uv run python scripts/benchmark.py /tmp/docstore-benchmark --count 30
 uv run python scripts/benchmark.py /tmp/docstore-benchmark --count 30 --output json
+uv run python scripts/benchmark.py /tmp/docstore-benchmark --count 30 --query-repetitions 10
 ```
 
 Use `--provider` and `--model` to run it against a specific vendor. The
-benchmark is intended to show cache behavior, not provider quality.
+benchmark is intended to show cache behavior, not provider quality. Use
+`--skip-direct-baseline` when you only want the cheaper cold/warm/cache run.
+
+The blog-post shape is:
+
+- Cold extraction pays once to turn messy documents into typed records.
+- Warm extraction shows cache invalidation is content/schema-based.
+- Direct context shows what Claude, OpenClaw, or another agent pays when it
+  rereads the documents for every question.
+- Cached query shows the agent can get grounded answers without re-ingesting
+  the original files.
 
 ---
 
@@ -137,7 +150,18 @@ docstore clean --store ./invoices/.docstore --yes
 docstore stats --store ./invoices/.docstore
 ```
 
-### MCP server (Claude Desktop)
+### MCP server (Claude Desktop, OpenClaw, and Codex)
+
+docstore exposes an MCP server so agents can call `extract`, `query`, `diff`,
+and `stats` directly. The useful pattern is to let the agent extract missing
+records, then query cached JSON instead of repeatedly rereading the source
+documents.
+
+See [docs/integrations.md](docs/integrations.md) for copyable Claude Desktop,
+OpenClaw, and Codex setup examples. Codex users also get a repo-scoped skill at
+`.agents/skills/docstore/SKILL.md` that teaches the cache-aware workflow.
+
+#### Claude Desktop
 
 Add to your `claude_desktop_config.json`:
 
@@ -157,6 +181,38 @@ Add to your `claude_desktop_config.json`:
 ```
 
 Claude can then call `extract`, `query`, `diff`, and `stats` directly.
+
+#### OpenClaw
+
+OpenClaw acts as an MCP client registry for third-party MCP servers with
+`openclaw mcp add`. Register docstore as a local stdio server:
+
+```bash
+openclaw mcp add docstore \
+  --command docstore-server \
+  --env DOCSTORE_DIR=/path/to/your/.docstore \
+  --env DOCSTORE_PROVIDER=anthropic \
+  --env ANTHROPIC_API_KEY=your-key
+
+openclaw mcp doctor docstore --probe
+```
+
+OpenClaw's stdio MCP definitions use a command plus optional args, env, and cwd.
+If you run from a source checkout instead of an installed package, include a cwd
+and command that resolve in that environment.
+
+Useful agent prompts:
+
+```text
+Call docstore stats. If invoice_benchmark is missing, extract the invoices with
+fields invoice_no, vendor, amount, currency, due_date, paid. Then query
+invoice_benchmark with paid=false and summarize the unpaid invoices.
+```
+
+```text
+Use docstore query for invoice_benchmark paid=false. Do not reread the raw
+invoice files unless docstore has no cached extraction for them.
+```
 
 Supported providers are `anthropic` (default), `openai`, `groq`, and `gemini`.
 Set `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, or `GEMINI_API_KEY`
