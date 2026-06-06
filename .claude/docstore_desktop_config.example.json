@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "docstore": {
+      "command": "docstore-server",
+      "env": {
+        "DOCSTORE_DIR": "/path/to/your/.docstore",
+        "DOCSTORE_PROVIDER": "anthropic",
+        "ANTHROPIC_API_KEY": "your-key"
+      }
+    }
+  }
+}

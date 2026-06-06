@@ -15,6 +15,30 @@ class FakeLLM:
 
     def complete(self, **kwargs):
         self.calls += 1
+        if kwargs["system"] == benchmark.DIRECT_CONTEXT_SYSTEM:
+            return LLMResponse(
+                text=json.dumps(
+                    [
+                        {
+                            "vendor": "Acme Logistics LLC",
+                            "invoice_no": "INV-DIRECT-1",
+                            "amount": 123.45,
+                            "currency": "USD",
+                            "due_date": "2026-01-31",
+                        },
+                        {
+                            "vendor": "Cascadia Cloud Services",
+                            "invoice_no": "INV-DIRECT-2",
+                            "amount": 456.78,
+                            "currency": "USD",
+                            "due_date": "2026-02-28",
+                        },
+                    ]
+                ),
+                input_tokens=200,
+                output_tokens=30,
+                model=self.model,
+            )
         return LLMResponse(
             text=json.dumps(
                 {
@@ -98,6 +122,45 @@ def test_summarize_extract_math():
     }
 
 
+def test_count_json_records_accepts_common_shapes():
+    assert benchmark.count_json_records('[{"invoice_no": "1"}, {"invoice_no": "2"}]') == 2
+    assert benchmark.count_json_records('{"invoices": [{"invoice_no": "1"}]}') == 1
+    assert benchmark.count_json_records("not json") == 0
+
+
+def test_projection_math_with_direct_context():
+    projection = benchmark.summarize_repeated_query_projection(
+        {
+            "tokens_used": 230,
+            "estimated_cost_usd": 0.00023,
+            "elapsed_seconds": 1.2,
+        },
+        {
+            "tokens_used": 0,
+            "estimated_cost_usd": 0.0,
+            "elapsed_seconds": 0.01,
+        },
+        query_repetitions=3,
+    )
+
+    assert projection == {
+        "query_repetitions": 3,
+        "cached_query": {
+            "tokens_used": 0,
+            "estimated_cost_usd": 0.0,
+            "elapsed_seconds": 0.03,
+        },
+        "direct_context_query": {
+            "tokens_used": 690,
+            "estimated_cost_usd": 0.00069,
+            "elapsed_seconds": 3.6,
+        },
+        "tokens_saved_by_cache": 690,
+        "cost_saved_by_cache_usd": 0.00069,
+        "seconds_saved_by_cache": 3.57,
+    }
+
+
 def test_json_output_shape_is_parseable(tmp_path, monkeypatch):
     fake = FakeLLM()
 
@@ -118,8 +181,10 @@ def test_json_output_shape_is_parseable(tmp_path, monkeypatch):
     assert [row["scenario"] for row in decoded["scenarios"]] == [
         "cold_extract",
         "warm_extract",
+        "direct_context_query",
         "cached_query",
     ]
+    assert decoded["projection"]["query_repetitions"] == 3
 
 
 def test_fake_llm_cold_then_warm_cache_behavior(tmp_path, monkeypatch):
@@ -134,9 +199,9 @@ def test_fake_llm_cold_then_warm_cache_behavior(tmp_path, monkeypatch):
         provider="anthropic",
         model="fake-benchmark-model",
     )
-    cold, warm, query = report["scenarios"]
+    cold, warm, direct, cached_query = report["scenarios"]
 
-    assert fake.calls == 2
+    assert fake.calls == 3
     assert cold["documents"] == 2
     assert cold["cache_hits"] == 0
     assert cold["cache_misses"] == 2
@@ -146,5 +211,35 @@ def test_fake_llm_cold_then_warm_cache_behavior(tmp_path, monkeypatch):
     assert warm["cache_misses"] == 0
     assert warm["tokens_used"] == 0
     assert warm["tokens_saved"] == 50
-    assert query["scenario"] == "cached_query"
-    assert query["tokens_used"] == 0
+    assert direct["scenario"] == "direct_context_query"
+    assert direct["tokens_used"] == 230
+    assert direct["returned_records"] == 2
+    assert cached_query["scenario"] == "cached_query"
+    assert cached_query["tokens_used"] == 0
+    assert report["projection"]["tokens_saved_by_cache"] == 690
+
+
+def test_skip_direct_baseline_keeps_original_three_scenarios(tmp_path, monkeypatch):
+    fake = FakeLLM()
+
+    monkeypatch.setattr(benchmark, "create_llm_client", lambda provider, model: fake)
+
+    report = benchmark.run_benchmark(
+        tmp_path,
+        count=2,
+        seed=11,
+        provider="anthropic",
+        model="fake-benchmark-model",
+        skip_direct_baseline=True,
+    )
+
+    assert fake.calls == 2
+    assert [row["scenario"] for row in report["scenarios"]] == [
+        "cold_extract",
+        "warm_extract",
+        "cached_query",
+    ]
+    assert report["projection"]["query_repetitions"] == 3
+    assert report["projection"]["cached_query"]["tokens_used"] == 0
+    assert report["projection"]["cached_query"]["estimated_cost_usd"] == 0.0
+    assert report["projection"]["direct_context_query"] is None

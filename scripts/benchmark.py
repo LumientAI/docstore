@@ -49,6 +49,13 @@ BENCHMARK_SCHEMA_FIELDS = {
     "paid": "boolean",
 }
 SUPPORTED_SUFFIXES = {".pdf", ".docx", ".txt", ".md", ".csv", ".html", ".json"}
+DIRECT_CONTEXT_SYSTEM = """\
+You answer questions over invoice documents. Return ONLY valid JSON.\
+"""
+DIRECT_CONTEXT_QUERY = """\
+Find every unpaid invoice in the documents below. Return a JSON array where \
+each item has invoice_no, vendor, amount, currency, and due_date.\
+"""
 
 
 def benchmark_schema() -> SchemaDescriptor:
@@ -107,6 +114,28 @@ def summarize_query(
     }
 
 
+def summarize_direct_context_query(
+    scenario: str,
+    documents: int,
+    returned_records: int,
+    elapsed_seconds: float,
+    tokens_used: int,
+    usd_per_mtok: float,
+) -> dict[str, Any]:
+    return {
+        "scenario": scenario,
+        "documents": documents,
+        "returned_records": returned_records,
+        "cache_hits": 0,
+        "cache_misses": 0,
+        "tokens_used": tokens_used,
+        "tokens_saved": 0,
+        "savings_percent": 0.0,
+        "elapsed_seconds": round(elapsed_seconds, 3),
+        "estimated_cost_usd": round(tokens_used / 1_000_000 * usd_per_mtok, 6),
+    }
+
+
 def run_extract_scenario(
     scenario: str,
     directory: Path,
@@ -138,6 +167,108 @@ def run_cached_query_scenario(
     return summarize_query("cached_query", len(unpaid), time.perf_counter() - t0)
 
 
+def build_direct_context(directory: Path, glob: str = "invoice_*.txt") -> tuple[str, int]:
+    parts = []
+    documents = 0
+    for f in sorted(directory.glob(glob)):
+        if f.is_file() and f.suffix.lower() in SUPPORTED_SUFFIXES:
+            text = parser_agent.parse(f)
+            parts.append(f"<document path={json.dumps(str(f))}>\n{text}\n</document>")
+            documents += 1
+    return "\n\n".join(parts), documents
+
+
+def count_json_records(raw: str) -> int:
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.removeprefix("```json").removeprefix("```").strip()
+        cleaned = cleaned.removesuffix("```").strip()
+
+    start_candidates = [i for i in (cleaned.find("["), cleaned.find("{")) if i != -1]
+    if not start_candidates:
+        return 0
+
+    try:
+        value, _ = json.JSONDecoder().raw_decode(cleaned, min(start_candidates))
+    except json.JSONDecodeError:
+        return 0
+
+    if isinstance(value, list):
+        return len(value)
+    if isinstance(value, dict):
+        for key in ("invoices", "results", "items", "data"):
+            nested = value.get(key)
+            if isinstance(nested, list):
+                return len(nested)
+        return 1
+    return 0
+
+
+def run_direct_context_query_scenario(
+    directory: Path,
+    client,
+    model: str,
+    usd_per_mtok: float,
+) -> dict[str, Any]:
+    context, documents = build_direct_context(directory)
+    t0 = time.perf_counter()
+    response = client.complete(
+        system=DIRECT_CONTEXT_SYSTEM,
+        messages=[
+            {
+                "role": "user",
+                "content": f"{DIRECT_CONTEXT_QUERY}\n\n{context}",
+            }
+        ],
+        max_tokens=2048,
+        temperature=0,
+    )
+    elapsed = time.perf_counter() - t0
+    return summarize_direct_context_query(
+        "direct_context_query",
+        documents,
+        count_json_records(response.text),
+        elapsed,
+        response.tokens_used,
+        usd_per_mtok,
+    )
+
+
+def summarize_repeated_query_projection(
+    direct_context: dict[str, Any] | None,
+    cached_query: dict[str, Any],
+    query_repetitions: int,
+) -> dict[str, Any]:
+    cached_tokens = cached_query["tokens_used"] * query_repetitions
+    cached_cost = round(cached_query["estimated_cost_usd"] * query_repetitions, 6)
+    cached_time = round(cached_query["elapsed_seconds"] * query_repetitions, 3)
+
+    projection: dict[str, Any] = {
+        "query_repetitions": query_repetitions,
+        "cached_query": {
+            "tokens_used": cached_tokens,
+            "estimated_cost_usd": cached_cost,
+            "elapsed_seconds": cached_time,
+        },
+        "direct_context_query": None,
+    }
+    if direct_context is None:
+        return projection
+
+    direct_tokens = direct_context["tokens_used"] * query_repetitions
+    direct_cost = round(direct_context["estimated_cost_usd"] * query_repetitions, 6)
+    direct_time = round(direct_context["elapsed_seconds"] * query_repetitions, 3)
+    projection["direct_context_query"] = {
+        "tokens_used": direct_tokens,
+        "estimated_cost_usd": direct_cost,
+        "elapsed_seconds": direct_time,
+    }
+    projection["tokens_saved_by_cache"] = max(direct_tokens - cached_tokens, 0)
+    projection["cost_saved_by_cache_usd"] = round(max(direct_cost - cached_cost, 0), 6)
+    projection["seconds_saved_by_cache"] = round(max(direct_time - cached_time, 0), 3)
+    return projection
+
+
 def prepare_corpus(directory: Path, count: int, seed: int, generate: bool) -> int:
     if generate:
         return len(generate_corpus(directory, count=count, seed=seed))
@@ -154,6 +285,8 @@ def run_benchmark(
     generate: bool = True,
     fresh: bool = True,
     usd_per_mtok: float = 1.0,
+    query_repetitions: int = 3,
+    skip_direct_baseline: bool = False,
 ) -> dict[str, Any]:
     document_count = prepare_corpus(directory, count, seed, generate)
     store_dir = directory / ".docstore"
@@ -171,7 +304,14 @@ def run_benchmark(
     warm = run_extract_scenario(
         "warm_extract", directory, descriptor, store, client, model, usd_per_mtok
     )
+    direct = None
+    if not skip_direct_baseline:
+        direct = run_direct_context_query_scenario(directory, client, model, usd_per_mtok)
     query = run_cached_query_scenario(descriptor, store)
+    scenarios = [cold, warm]
+    if direct is not None:
+        scenarios.append(direct)
+    scenarios.append(query)
 
     return {
         "corpus": {
@@ -190,7 +330,8 @@ def run_benchmark(
             "model": model,
             "usd_per_mtok": usd_per_mtok,
         },
-        "scenarios": [cold, warm, query],
+        "scenarios": scenarios,
+        "projection": summarize_repeated_query_projection(direct, query, query_repetitions),
     }
 
 
@@ -229,6 +370,24 @@ def print_table(report: dict[str, Any]) -> None:
 
     console.print(table)
 
+    projection = report.get("projection", {})
+    direct_projection = projection.get("direct_context_query")
+    cached_projection = projection.get("cached_query", {})
+    repetitions = projection.get("query_repetitions", 0)
+    if direct_projection is not None:
+        rprint(
+            f"\n[bold]Repeated query projection[/bold] ({repetitions} runs): "
+            f"direct context uses {direct_projection['tokens_used']:,} tokens "
+            f"(${direct_projection['estimated_cost_usd']:.6f}); "
+            f"cached query uses {cached_projection.get('tokens_used', 0):,} tokens "
+            f"(${cached_projection.get('estimated_cost_usd', 0):.6f})."
+        )
+        rprint(
+            f"[dim]Projected cache savings: "
+            f"{projection.get('tokens_saved_by_cache', 0):,} tokens, "
+            f"${projection.get('cost_saved_by_cache_usd', 0):.6f}[/dim]"
+        )
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="docstore public cache benchmark")
@@ -244,6 +403,17 @@ def main() -> None:
     )
     parser.add_argument("--model", default=None)
     parser.add_argument("--usd-per-mtok", type=float, default=1.0)
+    parser.add_argument(
+        "--query-repetitions",
+        type=int,
+        default=3,
+        help="Projected number of repeated questions over the same corpus",
+    )
+    parser.add_argument(
+        "--skip-direct-baseline",
+        action="store_true",
+        help="Skip the direct LLM full-context query baseline",
+    )
     parser.add_argument("--output", choices=["table", "json"], default="table")
     args = parser.parse_args()
 
@@ -256,6 +426,8 @@ def main() -> None:
         generate=not args.no_generate,
         fresh=not args.keep_cache,
         usd_per_mtok=args.usd_per_mtok,
+        query_repetitions=args.query_repetitions,
+        skip_direct_baseline=args.skip_direct_baseline,
     )
 
     if args.output == "json":

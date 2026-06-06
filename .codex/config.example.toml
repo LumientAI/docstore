@@ -1,0 +1,15 @@
+# Copy into .codex/config.toml for a trusted project, or adapt into
+# ~/.codex/config.toml for your local Codex profile.
+#
+# This source-checkout variant runs docstore-server through uv.
+
+[mcp_servers.docstore]
+command = "uv"
+args = ["run", "docstore-server"]
+cwd = "/path/to/docstore"
+env_vars = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "GEMINI_API_KEY"]
+
+[mcp_servers.docstore.env]
+DOCSTORE_DIR = "/path/to/your/.docstore"
+DOCSTORE_PROVIDER = "anthropic"
+
